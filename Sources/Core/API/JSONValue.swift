@@ -69,6 +69,16 @@ extension JSONValue {
     return nil
   }
 
+  public var intValue: Int? {
+    if case .int(let value) = self {
+      return value
+    }
+    if case .double(let value) = self {
+      return Int(value)
+    }
+    return nil
+  }
+
   public subscript(key: String) -> JSONValue? {
     if case .object(let dict) = self {
       return dict[key]

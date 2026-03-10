@@ -52,6 +52,12 @@ struct JSONValueTests {
     #expect(value == .null)
   }
 
+  @Test func intValue() {
+    #expect(JSONValue.int(42).intValue == 42)
+    #expect(JSONValue.double(3.9).intValue == 3)
+    #expect(JSONValue.string("hello").intValue == nil)
+  }
+
   @Test func decodingInvalidJSONThrows() {
     #expect(throws: DecodingError.self) {
       // A bare, unquoted token is not valid JSON

@@ -6,6 +6,7 @@ public final class Agent {
   private let apiClient: any APIClientProtocol
   private let model: String
   private let systemPrompt: String
+  private let workingDirectory: String
   private let shellExecutor: ShellExecutor
   private var messages: [Message] = []
 
@@ -18,6 +19,7 @@ public final class Agent {
     self.apiClient = apiClient
     self.model = model
     self.systemPrompt = systemPrompt ?? Self.buildSystemPrompt(cwd: workingDirectory)
+    self.workingDirectory = workingDirectory
     self.shellExecutor = ShellExecutor(workingDirectory: workingDirectory)
   }
 
@@ -32,7 +34,7 @@ public final class Agent {
         maxTokens: 4096,
         system: systemPrompt,
         messages: messages,
-        tools: [Self.bashToolDefinition]
+        tools: Self.toolDefinitions
       )
 
       let response = try await apiClient.createMessage(request: request)
@@ -72,16 +74,11 @@ public final class Agent {
 
   public static func buildSystemPrompt(cwd: String) -> String {
     """
-    You are a coding agent at \(cwd). You help the user by executing \
-    shell commands to explore the filesystem, read and write files, run programs, \
-    and accomplish tasks.
+    You are a coding agent at \(cwd). Use tools to solve tasks. \
+    Act, don't explain.
 
-    Guidelines:
-    - Use the bash tool to execute commands
-    - Always check the result of commands before proceeding
-    - If a command fails, try to understand why and fix it
-    - Be concise in your explanations
-    - When editing files, show the relevant changes
+    - Prefer read_file/write_file/edit_file over bash for file operations
+    - Always check tool results before proceeding
     """
   }
 }
@@ -95,26 +92,99 @@ extension Agent {
     case executionFailed(String)
   }
 
-  private static let bashToolDefinition = ToolDefinition(
-    name: "bash",
-    description: "Run a shell command and return its output.",
-    inputSchema: .object([
-      "type": "object",
-      "properties": .object([
-        "command": .object([
-          "type": "string",
-          "description": "The shell command to execute"
-        ])
-      ]),
-      "required": .array(["command"])
-    ])
-  )
+  static let toolDefinitions: [ToolDefinition] = [
+    ToolDefinition(
+      name: "bash",
+      description: "Run a shell command.",
+      inputSchema: .object([
+        "type": "object",
+        "properties": .object([
+          "command": .object([
+            "type": "string",
+            "description": "The shell command to execute"
+          ])
+        ]),
+        "required": .array(["command"])
+      ])
+    ),
+    ToolDefinition(
+      name: "read_file",
+      description: "Read file contents.",
+      inputSchema: .object([
+        "type": "object",
+        "properties": .object([
+          "path": .object([
+            "type": "string",
+            "description": "The file path to read"
+          ]),
+          "limit": .object([
+            "type": "integer",
+            "description": "Maximum number of lines to read"
+          ])
+        ]),
+        "required": .array(["path"])
+      ])
+    ),
+    ToolDefinition(
+      name: "write_file",
+      description: "Write content to a file.",
+      inputSchema: .object([
+        "type": "object",
+        "properties": .object([
+          "path": .object([
+            "type": "string",
+            "description": "The file path to write"
+          ]),
+          "content": .object([
+            "type": "string",
+            "description": "The content to write"
+          ])
+        ]),
+        "required": .array(["path", "content"])
+      ])
+    ),
+    ToolDefinition(
+      name: "edit_file",
+      description: "Replace exact text in a file.",
+      inputSchema: .object([
+        "type": "object",
+        "properties": .object([
+          "path": .object([
+            "type": "string",
+            "description": "The file path to edit"
+          ]),
+          "old_text": .object([
+            "type": "string",
+            "description": "The exact text to find and replace"
+          ]),
+          "new_text": .object([
+            "type": "string",
+            "description": "The replacement text"
+          ])
+        ]),
+        "required": .array(["path", "old_text", "new_text"])
+      ])
+    )
+  ]
 
   func executeTool(name: String, input: JSONValue) async -> Result<String, ToolError> {
-    guard name == "bash" else {
+    let handlers = [
+      "bash": executeBash,
+      "read_file": executeReadFile,
+      "write_file": executeWriteFile,
+      "edit_file": executeEditFile
+    ]
+
+    guard let handler = handlers[name] else {
       return .failure(.unknownTool(name))
     }
 
+    return await handler(input)
+  }
+
+  // MARK: - Handlers
+
+  private func executeBash(_ input: JSONValue) async -> Result<String, ToolError> {
     guard let command = input["command"]?.stringValue else {
       return .failure(.missingParameter("command"))
     }
@@ -123,15 +193,136 @@ extension Agent {
       let result = try await shellExecutor.execute(command)
       return .success(result.formatted)
     } catch {
-      return .failure(.executionFailed(error.localizedDescription))
+      return .failure(.executionFailed("\(error)"))
     }
   }
 
+  private func executeReadFile(_ input: JSONValue) async -> Result<String, ToolError> {
+    guard let path = input["path"]?.stringValue else {
+      return .failure(.missingParameter("path"))
+    }
+
+    switch resolveSafePath(path) {
+    case .failure(let error):
+      return .failure(error)
+    case .success(let resolvedPath):
+      do {
+        let text = try String(contentsOfFile: resolvedPath, encoding: .utf8)
+
+        let lines = text.components(separatedBy: "\n")
+        var output: String
+
+        if let limit = input["limit"]?.intValue, limit < lines.count {
+          output =
+            lines.prefix(limit).joined(separator: "\n")
+            + "\n... (\(lines.count - limit) more lines)"
+        } else {
+          output = text
+        }
+
+        if output.count > 50_000 {
+          output = String(output.prefix(50_000))
+        }
+
+        return .success(output)
+      } catch {
+        return .failure(.executionFailed("\(error)"))
+      }
+    }
+  }
+
+  private func executeWriteFile(_ input: JSONValue) async -> Result<String, ToolError> {
+    guard let path = input["path"]?.stringValue else {
+      return .failure(.missingParameter("path"))
+    }
+
+    guard let content = input["content"]?.stringValue else {
+      return .failure(.missingParameter("content"))
+    }
+
+    switch resolveSafePath(path) {
+    case .failure(let error):
+      return .failure(error)
+    case .success(let resolvedPath):
+      do {
+        let fileURL = URL(fileURLWithPath: resolvedPath)
+
+        try FileManager.default.createDirectory(
+          at: fileURL.deletingLastPathComponent(),
+          withIntermediateDirectories: true
+        )
+        try content.write(toFile: resolvedPath, atomically: true, encoding: .utf8)
+
+        return .success("Wrote \(content.utf8.count) bytes to \(path)")
+      } catch {
+        return .failure(.executionFailed("\(error)"))
+      }
+    }
+  }
+
+  private func executeEditFile(_ input: JSONValue) async -> Result<String, ToolError> {
+    guard let path = input["path"]?.stringValue else {
+      return .failure(.missingParameter("path"))
+    }
+
+    guard let oldText = input["old_text"]?.stringValue else {
+      return .failure(.missingParameter("old_text"))
+    }
+
+    guard let newText = input["new_text"]?.stringValue else {
+      return .failure(.missingParameter("new_text"))
+    }
+
+    switch resolveSafePath(path) {
+    case .failure(let error):
+      return .failure(error)
+    case .success(let resolvedPath):
+      do {
+        var content = try String(contentsOfFile: resolvedPath, encoding: .utf8)
+
+        guard let range = content.range(of: oldText) else {
+          return .failure(.executionFailed("Text not found in \(path)"))
+        }
+
+        content.replaceSubrange(range, with: newText)
+        try content.write(toFile: resolvedPath, atomically: true, encoding: .utf8)
+
+        return .success("Edited \(path)")
+      } catch {
+        return .failure(.executionFailed("\(error)"))
+      }
+    }
+  }
+
+  // MARK: Helpers
+
+  private func resolveSafePath(_ relativePath: String) -> Result<String, ToolError> {
+    let workDirURL = URL(fileURLWithPath: workingDirectory, isDirectory: true)
+    let resolvedWorkDir = workDirURL.standardized
+
+    let fullURL =
+      if relativePath.hasPrefix("/") {
+        URL(fileURLWithPath: relativePath).standardized
+      } else {
+        workDirURL.appendingPathComponent(relativePath).standardized
+      }
+
+    guard
+      fullURL.path.hasPrefix(resolvedWorkDir.path + "/") || fullURL.path == resolvedWorkDir.path
+    else {
+      return .failure(.executionFailed("Path escapes workspace: \(relativePath)"))
+    }
+
+    return .success(fullURL.path)
+  }
+
   private func printToolCall(name: String, input: JSONValue) {
-    if let command = input["command"]?.stringValue {
+    if name == "bash", let command = input["command"]?.stringValue {
       print("\(ANSIColor.yellow)$ \(command)\(ANSIColor.reset)")
+    } else if let path = input["path"]?.stringValue {
+      print("\(ANSIColor.yellow)> \(name): \(path)\(ANSIColor.reset)")
     } else {
-      print("\(ANSIColor.yellow)⚡ \(name)\(ANSIColor.reset)")
+      print("\(ANSIColor.yellow)> \(name)\(ANSIColor.reset)")
     }
   }
 }

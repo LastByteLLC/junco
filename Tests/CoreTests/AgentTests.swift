@@ -65,16 +65,13 @@ struct AgentToolDispatchTests {
     #expect(result == .failure(.missingParameter("command")))
   }
 
-  @Test func validCommandReturnsOutput() async {
+  @Test func validCommandReturnsOutput() async throws {
     let (agent, _) = makeAgent()
     let result = await agent.executeTool(
       name: "bash",
       input: .object(["command": "echo hello"])
     )
-    guard case .success(let output) = result else {
-      Issue.record("Expected .success, got \(result)")
-      return
-    }
+    let output = try result.get()
     #expect(output.contains("hello"))
   }
 }
