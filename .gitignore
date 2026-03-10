@@ -1,0 +1,40 @@
+# macOS
+.DS_Store
+
+# Xcode
+xcuserdata/
+*.xcodeproj/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+timeline.xctimeline
+playground.xcworkspace
+DerivedData/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# CocoaPods
+# Pods/
+
+# Carthage
+Carthage/Build/
+
+# fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# Environment
+.env
+
+# Documentation
+docs/
+CLAUDE.md
+
+# Test results
+tests/results/
