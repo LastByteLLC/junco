@@ -2,7 +2,7 @@
 
 Exploring the architecture of coding agents by rebuilding a Claude Code-style CLI from scratch in Swift.
 
-> **Current progress:** Stage 05 of 12 — skill loading from `.md` files injected as tool results
+> **Current progress:** Stage 05 of 08 — skill loading from `.md` files injected as tool results
 
 ![demo](demo.gif)
 
@@ -63,7 +63,7 @@ The loop is the invariant. Tools are the variable. Every stage adds entries to t
 
 ## Roadmap
 
-Progress is tracked via git tags. The roadmap is split into three phases — core mechanics first, then product-level features, then experimental multi-agent systems.
+Progress is tracked via git tags. The roadmap is split into two phases — core mechanics first, then product-level features.
 
 ### Phase 1 — Core Loop
 
@@ -87,17 +87,6 @@ The features that make an agent feel like a usable product: context, memory mana
 | 06     | Context compaction: 3-layer strategy (micro, auto, manual)   | —                  |
 | 07     | Task system: file-based CRUD with dependency DAG             | —                  |
 | 08     | Background tasks: `Task {}` + actor-based notification queue | —                  |
-
-### Phase 3 — Experimental
-
-Multi-agent coordination. These stages explore ideas beyond the core product loop.
-
-| Stage | What It Adds                                          | Tag |
-| ----- | ----------------------------------------------------- | --- |
-| 09    | Agent teams: JSONL mailbox + actor coordination       | —   |
-| 10    | Team protocols: request-response with correlation IDs | —   |
-| 11    | Autonomous agents: idle-poll-claim cycle              | —   |
-| 12    | Worktree isolation: `git worktree` via Process        | —   |
 
 ## Architecture
 
