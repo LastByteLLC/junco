@@ -41,7 +41,7 @@ public struct ShellExecutor: Sendable {
   }
 
   /// Run a shell command and capture stdout, stderr, and exit code.
-  /// Optionally terminates the process via SIGTERM if the timeout deadline passes.
+  /// Terminates the process via SIGINT if the timeout deadline passes.
   public func execute(
     _ command: String,
     timeout: TimeInterval? = nil
@@ -64,13 +64,16 @@ public struct ShellExecutor: Sendable {
 
       try process.run()
 
+      let startTime = DispatchTime.now()
       var timer: DispatchSourceTimer?
       if let timeout {
         let source = DispatchSource.makeTimerSource()
         source.schedule(deadline: .now() + timeout)
         source.setEventHandler {
           if process.isRunning {
-            process.terminate()
+            // SIGINT: bash forwards to child process group on both macOS and Linux.
+            // SIGTERM doesn't work reliably — bash waits for children to finish.
+            process.interrupt()
           }
         }
         source.resume()
@@ -85,9 +88,11 @@ public struct ShellExecutor: Sendable {
       timer?.cancel()
 
       if let timeout {
-        let wasTerminated =
-          process.terminationReason == .uncaughtSignal && process.terminationStatus == SIGTERM
-        if wasTerminated {
+        let elapsedSeconds =
+          Double(
+            DispatchTime.now().uptimeNanoseconds - startTime.uptimeNanoseconds
+          ) / 1_000_000_000
+        if elapsedSeconds >= timeout {
           throw ShellExecutorError.timeout(seconds: Int(timeout))
         }
       }
