@@ -92,7 +92,7 @@ The features that make an agent feel like a usable product: context, memory mana
 
 Two-target Swift Package Manager project:
 
-**Core** is the library — API client, shell executor, agent loop, tools, everything testable.
+**Core** is the library — API client, shell executor, agent loop, tools.
 
 **CLI** is just the entry point. The executable is called `claude`.
 
