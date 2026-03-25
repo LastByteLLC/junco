@@ -98,7 +98,7 @@ Two-target Swift Package Manager project:
 
 **Core** is the library — API client, shell executor, agent loop, tools.
 
-**CLI** is just the entry point. The executable is called `claude`.
+**CLI** is just the entry point. The executable is called `agent`.
 
 Raw HTTP to `POST https://api.anthropic.com/v1/messages` using [AsyncHTTPClient](https://github.com/swift-server/async-http-client). Works on both macOS and Linux.
 
@@ -130,7 +130,7 @@ cp .env.example .env
 # Edit .env with your ANTHROPIC_API_KEY and MODEL_ID
 
 swift build
-swift run claude
+swift run agent
 ```
 
 ## References

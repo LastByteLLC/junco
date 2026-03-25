@@ -7,7 +7,7 @@ let package = Package(
   name: "swift-claude-code",
   platforms: [.macOS(.v10_15)],
   products: [
-    .executable(name: "claude", targets: ["cli"]),
+    .executable(name: "agent", targets: ["cli"]),
     .library(name: "Core", targets: ["Core"])
   ],
   dependencies: [
