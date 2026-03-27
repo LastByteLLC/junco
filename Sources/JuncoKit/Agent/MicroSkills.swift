@@ -201,6 +201,26 @@ public struct SkillLoader: Sendable {
           """,
         tools: nil, maxSteps: nil
       ),
+      MicroSkill(
+        name: "swift-docc",
+        domain: "swift", taskTypes: ["add", "explain", "refactor"],
+        hint: """
+          DocC documentation workflow: \
+          1) Extract symbol graphs: `swift symbolgraph-extract --module-name <Module> \
+          --minimum-access-level public --output-dir .build/symbol-graphs \
+          -target arm64-apple-macosx26.0 -I .build/debug`. \
+          2) Create a catalog: `xcrun docc init --name <Module> --output-dir Sources/<Module>.docc \
+          --template articleOnly`. \
+          3) Build docs: `xcrun docc convert Sources/<Module>.docc \
+          --additional-symbol-graph-dir .build/symbol-graphs --output-path .build/docs`. \
+          4) Preview locally: `xcrun docc preview Sources/<Module>.docc \
+          --additional-symbol-graph-dir .build/symbol-graphs`. \
+          Use `/// Triple-slash` comments with `- Parameters:`, `- Returns:`, `- Throws:` for symbols. \
+          Use `## Topics` sections in extension files to organize the symbol sidebar. \
+          Link to symbols with `` ``MyType/myMethod(_:)`` `` (double backtick).
+          """,
+        tools: nil, maxSteps: nil
+      ),
     ]
   }
 
