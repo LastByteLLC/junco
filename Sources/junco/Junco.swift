@@ -1,7 +1,8 @@
-// Junco.swift — CLI entry point with TUI
+// Junco.swift — CLI entry point with fully wired TUI
 //
-// REPL with slash directives, clipboard handling, multi-turn context,
-// undo, ANSI output, session metrics, and domain detection.
+// All features connected: welcome message, session persistence,
+// thinking phrases, markdown rendering, diff display, command history,
+// notifications, web search, scratchpad, permissions.
 
 import ArgumentParser
 import Foundation
@@ -12,7 +13,7 @@ struct Junco: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "junco",
     abstract: "An AI coding agent powered by on-device language models.",
-    version: "0.3.0"
+    version: "0.4.0"
   )
 
   @Option(name: .shortAndLong, help: "Working directory (default: current)")
@@ -24,14 +25,23 @@ struct Junco: AsyncParsableCommand {
   @Flag(name: .shortAndLong, help: "Show debug output for every pipeline stage (to stderr)")
   var verbose = false
 
+  // Shared services (lazy initialized)
+  private var cwd: String { directory ?? FileManager.default.currentDirectoryPath }
+
   func run() async throws {
-    let cwd = directory ?? FileManager.default.currentDirectoryPath
+    let cwd = self.cwd
     let adapter = AFMAdapter()
     let orchestrator = Orchestrator(adapter: adapter, workingDirectory: cwd)
     if verbose { await orchestrator.setVerbose(true) }
+
     let session = SessionManager(workingDirectory: cwd)
+    let history = CommandHistory()
+    let persistence = SessionPersistence(workingDirectory: cwd)
+    let notifications = NotificationService()
+    let markdown = MarkdownRenderer()
+    let diffRenderer = DiffRenderer()
+    let phrases = ThinkingPhrases(projectDirectory: cwd)
     let sessionStart = Date()
-    let domain = await orchestrator.domain
 
     if pipe {
       guard let raw = readLine(), !raw.isEmpty else { return }
@@ -39,43 +49,60 @@ struct Junco: AsyncParsableCommand {
       let parsed = parser.parse(raw)
       let urlCtx = await parser.fetchURLs(parsed.urls)
       let processed = await session.processInput(parsed.query)
+      var pipeSession = PersistedSession(workingDirectory: cwd, domain: "general")
       try await runQuery(
         processed, orchestrator: orchestrator, session: session,
-        referencedFiles: parsed.referencedFiles, urlContext: urlCtx
+        persistence: persistence, notifications: notifications,
+        markdown: markdown, diffRenderer: diffRenderer,
+        sessionStart: sessionStart, history: history,
+        referencedFiles: parsed.referencedFiles, urlContext: urlCtx,
+        persistedSession: &pipeSession
       )
       return
     }
 
-    // Interactive REPL
-    let gitInfo = await session.gitContext()
-    Terminal.header("junco v0.3.0 — on-device AI coding agent")
-    Terminal.line(Style.dim("Domain: \(domain.displayName) | Dir: \(cwd)"))
-    if let git = gitInfo {
-      Terminal.line(Style.dim("Git: \(git)"))
-    }
-    Terminal.line(Style.dim("Type /help for commands, exit to quit"))
-    Terminal.divider()
+    // --- Interactive REPL ---
 
-    // Set up interactive line editor (falls back to plain readLine if not a TTY)
+    // Welcome message
+    let domain = await orchestrator.domain
+    let gitBranch = await session.gitContext()
+    let fileCount = FileTools(workingDirectory: cwd).listFiles().count
+    let reflectionCount = ReflectionStore(projectDirectory: cwd).count
+    let welcome = WelcomeMessage(
+      domain: domain, gitBranch: gitBranch,
+      fileCount: fileCount, reflectionCount: reflectionCount,
+      workingDirectory: cwd, version: "0.4.0"
+    )
+    print(welcome.render(width: Terminal.terminalWidth()))
+
+    // Resume session prompt
+    if let existing = persistence.load(), !existing.turns.isEmpty {
+      Terminal.line(Style.dim("Previous session: \(existing.turns.count) turns. Resuming context."))
+    }
+
+    // Initialize persisted session
+    var persistedSession = persistence.load() ?? PersistedSession(
+      workingDirectory: cwd, domain: domain.kind.rawValue
+    )
+
+    // Request notification authorization (async, non-blocking)
+    Task { await notifications.requestAuthorization() }
+
+    // Line editor with completers
     let driver = TerminalDriver()
     let promptStr = Style.cyan("junco") + Style.dim("> ")
     let editor: LineEditor? = driver.map { _ in
       LineEditor(
         prompt: promptStr,
-        completers: [
-          CommandCompleter(),
-          FileCompleter(workingDirectory: cwd),
-        ]
+        completers: [CommandCompleter(), FileCompleter(workingDirectory: cwd)]
       )
     }
 
     while true {
       let line: String?
       if let editor, let driver {
-        // Raw mode ON for interactive input (completions, arrow keys)
         driver.enableRawMode()
         line = editor.readLine(driver: driver)
-        // Raw mode OFF for agent execution (needs normal stdout)
         driver.restoreMode()
       } else {
         print(promptStr, terminator: "")
@@ -86,35 +113,38 @@ struct Junco: AsyncParsableCommand {
       let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
       guard !trimmed.isEmpty else { continue }
 
+      // Save to command history
+      history.append(trimmed)
+
       if trimmed.lowercased() == "exit" || trimmed.lowercased() == "quit" {
-        await printSessionSummary(orchestrator: orchestrator, session: session, sessionStart: sessionStart)
+        await printSessionSummary(orchestrator: orchestrator, sessionStart: sessionStart)
         break
       }
 
       if trimmed.hasPrefix("/") {
         await handleDirective(
-          trimmed, orchestrator: orchestrator,
-          session: session, sessionStart: sessionStart
+          trimmed, orchestrator: orchestrator, session: session,
+          sessionStart: sessionStart, persistence: persistence,
+          persistedSession: &persistedSession
         )
         continue
       }
 
-      // Parse input: extract @files, URLs, detect paste
+      // Parse input
       let parser = InputParser(workingDirectory: cwd)
       let parsed = parser.parse(trimmed)
-
-      // Fetch any referenced URLs
       let urlContext = await parser.fetchURLs(parsed.urls)
-
-      // Handle paste detection
       let query = await session.processInput(parsed.query)
 
-      // Save checkpoint for undo (if git repo)
       await session.saveCheckpoint()
 
       try await runQuery(
         query, orchestrator: orchestrator, session: session,
-        referencedFiles: parsed.referencedFiles, urlContext: urlContext
+        persistence: persistence, notifications: notifications,
+        markdown: markdown, diffRenderer: diffRenderer,
+        sessionStart: sessionStart, history: history,
+        referencedFiles: parsed.referencedFiles, urlContext: urlContext,
+        persistedSession: &persistedSession, phrases: phrases
       )
     }
   }
@@ -125,10 +155,19 @@ struct Junco: AsyncParsableCommand {
     _ query: String,
     orchestrator: Orchestrator,
     session: SessionManager,
+    persistence: SessionPersistence,
+    notifications: NotificationService,
+    markdown: MarkdownRenderer,
+    diffRenderer: DiffRenderer,
+    sessionStart: Date,
+    history: CommandHistory,
     referencedFiles: [String] = [],
-    urlContext: String? = nil
+    urlContext: String? = nil,
+    persistedSession: inout PersistedSession,
+    phrases: ThinkingPhrases = ThinkingPhrases()
   ) async throws {
-    Terminal.status("thinking...")
+    let taskStart = Date()
+    Terminal.status(phrases.status(stage: "classify", tick: 0))
 
     do {
       let result = try await orchestrator.run(
@@ -137,15 +176,30 @@ struct Junco: AsyncParsableCommand {
         urlContext: urlContext
       )
       Terminal.clearLine()
-      printResult(result)
+      await printResult(result, markdown: markdown, diffRenderer: diffRenderer, orchestrator: orchestrator)
 
-      // Record turn for multi-turn context
+      // Persist turn
+      let turn = PersistedTurn(
+        query: query,
+        taskType: result.memory.intent?.taskType ?? "unknown",
+        response: String(result.reflection.insight.prefix(200)),
+        succeeded: result.reflection.succeeded,
+        llmCalls: result.memory.llmCalls,
+        tokens: result.memory.totalTokensUsed,
+        filesModified: Array(result.memory.touchedFiles)
+      )
+      persistence.addTurn(turn, to: &persistedSession)
+
       await session.recordTurn(TurnSummary(
         query: query,
         taskType: result.memory.intent?.taskType ?? "unknown",
         outcome: result.reflection.succeeded ? "ok" : "error",
         filesModified: Array(result.memory.touchedFiles)
       ))
+
+      // Notify if slow
+      await notifications.notifyIfSlow(taskStart: taskStart, query: query)
+
     } catch {
       Terminal.clearLine()
       Terminal.line(Style.red("[error] \(error)"))
@@ -163,7 +217,9 @@ struct Junco: AsyncParsableCommand {
     _ cmd: String,
     orchestrator: Orchestrator,
     session: SessionManager,
-    sessionStart: Date
+    sessionStart: Date,
+    persistence: SessionPersistence,
+    persistedSession: inout PersistedSession
   ) async {
     let parts = cmd.split(separator: " ", maxSplits: 1)
     let directive = String(parts[0]).lowercased()
@@ -175,7 +231,12 @@ struct Junco: AsyncParsableCommand {
 
     case "/clear":
       await session.clear()
-      Terminal.line(Style.green("Session cleared.") + " Context, pastes, and turn history purged.")
+      persistence.clear()
+      persistedSession = PersistedSession(
+        workingDirectory: cwd,
+        domain: (await orchestrator.domain).kind.rawValue
+      )
+      Terminal.line(Style.green("Session cleared."))
 
     case "/undo":
       let result = await session.undo()
@@ -184,7 +245,6 @@ struct Junco: AsyncParsableCommand {
     case "/metrics":
       let metrics = await orchestrator.metrics
       let domain = await orchestrator.domain
-      let cwd = directory ?? FileManager.default.currentDirectoryPath
       let store = ReflectionStore(projectDirectory: cwd)
       let display = MetricsDisplay(
         metrics: metrics, domain: domain,
@@ -195,7 +255,6 @@ struct Junco: AsyncParsableCommand {
       Terminal.divider()
 
     case "/reflections":
-      let cwd = directory ?? FileManager.default.currentDirectoryPath
       let store = ReflectionStore(projectDirectory: cwd)
       Terminal.line("Stored reflections: \(store.count)")
       let recent = store.retrieve(query: arg ?? "", limit: 5)
@@ -212,6 +271,43 @@ struct Junco: AsyncParsableCommand {
       if let build = domain.buildCommand { Terminal.line("Build: \(Style.dim(build))") }
       if let test = domain.testCommand { Terminal.line("Test: \(Style.dim(test))") }
 
+    case "/search":
+      guard let query = arg, !query.isEmpty else {
+        Terminal.line(Style.yellow("Usage: /search <query>"))
+        return
+      }
+      Terminal.status("Searching...")
+      let ws = WebSearch()
+      if let result = await ws.search(query: query) {
+        Terminal.clearLine()
+        Terminal.line(ws.formatForPrompt(result))
+      } else {
+        Terminal.clearLine()
+        Terminal.line(Style.dim("No results found."))
+      }
+
+    case "/notes":
+      let pad = Scratchpad(projectDirectory: cwd)
+      if let noteArg = arg {
+        let noteParts = noteArg.split(separator: "=", maxSplits: 1)
+        if noteParts.count == 2 {
+          pad.write(key: String(noteParts[0]).trimmingCharacters(in: .whitespaces),
+                    value: String(noteParts[1]).trimmingCharacters(in: .whitespaces))
+          Terminal.line(Style.green("Note saved."))
+        } else {
+          Terminal.line(Style.yellow("Usage: /notes key=value"))
+        }
+      } else {
+        let notes = pad.readAll()
+        if notes.isEmpty {
+          Terminal.line(Style.dim("No notes. Use: /notes key=value"))
+        } else {
+          for (k, v) in notes.sorted(by: { $0.key < $1.key }) {
+            Terminal.line("  \(Style.cyan(k)): \(v)")
+          }
+        }
+      }
+
     case "/pastes":
       let info = await session.pasteInfo()
       Terminal.line(info)
@@ -220,7 +316,6 @@ struct Junco: AsyncParsableCommand {
       if let idStr = arg, let id = Int(idStr), let content = await session.getPaste(id) {
         Terminal.line("Paste #\(id) (\(content.count) chars):")
         Terminal.line(Style.dim(String(content.prefix(500))))
-        if content.count > 500 { Terminal.line(Style.dim("... [\(content.count - 500) more chars]")) }
       } else {
         Terminal.line(Style.yellow("Usage: /paste <id>"))
       }
@@ -236,12 +331,20 @@ struct Junco: AsyncParsableCommand {
       if let ctx = await session.previousContext() {
         Terminal.line(ctx)
       } else {
-        Terminal.line(Style.dim("No previous turns in this session."))
+        Terminal.line(Style.dim("No previous turns."))
+      }
+
+    case "/session":
+      Terminal.line("Session: \(persistedSession.id)")
+      Terminal.line("Turns: \(persistedSession.turns.count)")
+      for turn in persistedSession.turns.suffix(5) {
+        let icon = turn.succeeded ? Style.ok : Style.err
+        Terminal.line("  [\(icon)] \(turn.query)")
       }
 
     default:
       Terminal.line(Style.yellow("Unknown: \(directive)"))
-      Terminal.line(Style.dim("Type /help for available commands."))
+      Terminal.line(Style.dim("Type /help for commands."))
     }
   }
 
@@ -249,40 +352,47 @@ struct Junco: AsyncParsableCommand {
 
   private func printHelp() {
     Terminal.header("Junco Commands")
-    let commands = [
-      ("/clear", "Purge session context, pastes, and turn history"),
-      ("/undo", "Revert last agent changes (requires git)"),
-      ("/metrics", "Show session metrics (tokens, energy, time)"),
-      ("/reflections [query]", "Show stored reflections, optionally filtered"),
-      ("/domain", "Show detected project domain and config"),
-      ("/pastes", "List all clipboard pastes in this session"),
-      ("/paste <id>", "Show full content of a paste"),
-      ("/git", "Show git branch and status"),
-      ("/context", "Show multi-turn context from previous queries"),
-      ("/help", "Show this help"),
+    let commands: [(String, String)] = [
+      ("/clear", "Purge session and start fresh"),
+      ("/undo", "Revert last agent changes (git)"),
+      ("/metrics", "Token usage, energy, call counts"),
+      ("/reflections [q]", "Show stored reflections"),
+      ("/domain", "Detected project domain"),
+      ("/search <query>", "Web search (DuckDuckGo)"),
+      ("/notes [key=val]", "Project scratchpad"),
+      ("/session", "Show session history"),
+      ("/git", "Branch and status"),
+      ("/context", "Multi-turn context"),
+      ("/pastes", "Clipboard paste list"),
+      ("/help", "This help"),
     ]
     for (cmd, desc) in commands {
-      Terminal.line("  \(Style.cyan(cmd.padding(toLength: 24, withPad: " ", startingAt: 0)))\(desc)")
+      Terminal.line("  \(Style.cyan(cmd.padding(toLength: 22, withPad: " ", startingAt: 0)))\(desc)")
     }
     Terminal.line("")
-    Terminal.line(Style.dim("Prefix files with @ for explicit targeting: fix @src/auth.swift"))
+    Terminal.line(Style.dim("  @file to target  |  -v for debug  |  exit to quit"))
   }
 
   // MARK: - Display
 
-  private func printResult(_ result: RunResult) {
+  private func printResult(
+    _ result: RunResult,
+    markdown: MarkdownRenderer,
+    diffRenderer: DiffRenderer,
+    orchestrator: Orchestrator
+  ) async {
     let mem = result.memory
     let ref = result.reflection
 
+    // Plan
     if let plan = mem.plan {
       Terminal.header("Plan (\(plan.steps.count) steps)")
-      for (i, step) in plan.steps.enumerated() {
-        let done = i < plan.steps.count
-        let marker = done ? Style.green("+") : Style.dim(" ")
-        Terminal.line("  [\(marker)] \(step.instruction)")
+      for (_, step) in plan.steps.enumerated() {
+        Terminal.line("  [\(Style.green("+"))] \(step.instruction)")
       }
     }
 
+    // Observations
     if !mem.observations.isEmpty {
       Terminal.header("Results")
       for obs in mem.observations {
@@ -291,10 +401,26 @@ struct Junco: AsyncParsableCommand {
       }
     }
 
+    // Diffs
+    let diffs = await orchestrator.lastDiffs
+    if !diffs.isEmpty {
+      Terminal.header("Changes")
+      for diff in diffs {
+        Terminal.line(diffRenderer.render(diff))
+      }
+    }
+
+    // Build verification
+    if let buildResult = await orchestrator.lastBuildResult {
+      Terminal.header("Build")
+      Terminal.line(buildResult)
+    }
+
+    // Response (rendered as markdown)
     if ref.succeeded {
-      Terminal.line(Style.green("Done: ") + ref.insight)
+      Terminal.line(Style.green("Done: ") + markdown.render(ref.insight))
     } else {
-      Terminal.line(Style.yellow("Partial: ") + ref.insight)
+      Terminal.line(Style.yellow("Partial: ") + markdown.render(ref.insight))
     }
     if !ref.improvement.isEmpty {
       Terminal.line(Style.dim("  Learned: \(ref.improvement)"))
@@ -305,12 +431,9 @@ struct Junco: AsyncParsableCommand {
     ))
   }
 
-  private func printSessionSummary(
-    orchestrator: Orchestrator, session: SessionManager, sessionStart: Date
-  ) async {
+  private func printSessionSummary(orchestrator: Orchestrator, sessionStart: Date) async {
     let metrics = await orchestrator.metrics
     let domain = await orchestrator.domain
-    let cwd = directory ?? FileManager.default.currentDirectoryPath
     let store = ReflectionStore(projectDirectory: cwd)
 
     Terminal.divider()

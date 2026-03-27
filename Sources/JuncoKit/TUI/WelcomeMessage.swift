@@ -40,7 +40,7 @@ public struct WelcomeMessage: Sendable {
     let bar = String(repeating: "\u{2500}", count: min(width, 60))
     let dir = abbreviatePath(workingDirectory)
 
-    var lines = [
+    let lines = [
       Style.dim(bar),
       Style.bold("  junco v\(version)") + Style.dim(" \u{2014} on-device AI coding agent"),
       "",

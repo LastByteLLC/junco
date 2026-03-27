@@ -16,7 +16,7 @@ public struct MarkdownRenderer: Sendable {
 
   /// Render markdown string to ANSI-styled terminal output.
   public func render(_ markdown: String) -> String {
-    var lines = markdown.components(separatedBy: "\n")
+    let lines = markdown.components(separatedBy: "\n")
     var output: [String] = []
     var inCodeBlock = false
 
