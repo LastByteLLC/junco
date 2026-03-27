@@ -21,10 +21,14 @@ struct Junco: AsyncParsableCommand {
   @Flag(name: .long, help: "Run a single query from stdin, then exit")
   var pipe = false
 
+  @Flag(name: .shortAndLong, help: "Show debug output for every pipeline stage (to stderr)")
+  var verbose = false
+
   func run() async throws {
     let cwd = directory ?? FileManager.default.currentDirectoryPath
     let adapter = AFMAdapter()
     let orchestrator = Orchestrator(adapter: adapter, workingDirectory: cwd)
+    if verbose { await orchestrator.setVerbose(true) }
     let session = SessionManager(workingDirectory: cwd)
     let sessionStart = Date()
     let domain = await orchestrator.domain

@@ -2,7 +2,10 @@
 //
 // classify → strategy → plan → execute (2-phase) → reflect
 // Each stage is a separate LLM call. Working memory bridges stages.
-// M3: Uses SafeShell + FileTools + RAG (FileIndexer + ContextPacker).
+//
+// Debug mode: set verbose=true to log every stage's input/output.
+// Conversational queries (greetings, meta-questions) are handled
+// directly without entering the coding pipeline.
 
 import Foundation
 
@@ -18,6 +21,11 @@ public actor Orchestrator {
   private let intentClassifier: IntentClassifier
 
   private var projectIndex: [IndexEntry] = []
+
+  /// Enable verbose debug output to stderr.
+  public private(set) var verbose: Bool = false
+
+  public func setVerbose(_ value: Bool) { verbose = value }
 
   public private(set) var metrics: SessionMetrics
 
@@ -38,35 +46,55 @@ public actor Orchestrator {
   public func run(query: String) async throws -> RunResult {
     var memory = WorkingMemory(query: query)
 
+    // Check for conversational/meta queries first
+    if let directResponse = handleConversational(query) {
+      let reflection = AgentReflection(
+        taskSummary: "Conversational query",
+        insight: directResponse,
+        improvement: "",
+        succeeded: true
+      )
+      return RunResult(memory: memory, reflection: reflection)
+    }
+
     // Build project index using domain-specific extensions
     let indexer = FileIndexer(workingDirectory: workingDirectory)
     projectIndex = indexer.indexProject(extensions: domain.fileExtensions)
+    debug("Indexed \(projectIndex.count) symbols from \(domain.displayName) project")
 
     let intent = try await classify(query: query, memory: &memory)
     memory.intent = intent
+    debug("CLASSIFY → domain:\(intent.domain) type:\(intent.taskType) complexity:\(intent.complexity) targets:\(intent.targets)")
 
     let strategy = try await discoverStrategy(query: query, intent: intent, memory: &memory)
     memory.strategy = strategy
+    debug("STRATEGY → approach:\(strategy.approach) start:\(strategy.startingPoints) risk:\(strategy.risk)")
 
     let plan = try await plan(query: query, intent: intent, strategy: strategy, memory: &memory)
     memory.plan = plan
+    debug("PLAN → \(plan.steps.count) steps:")
+    for (i, step) in plan.steps.enumerated() {
+      debug("  [\(i + 1)] \(step.tool): \(step.instruction) → \(step.target)")
+    }
 
     for (index, step) in plan.steps.enumerated() {
       memory.currentStepIndex = index
       do {
         let observation = try await executeStep(step: step, memory: &memory)
         memory.addObservation(observation)
+        debug("EXEC[\(index + 1)] → [\(observation.outcome)] \(observation.tool): \(observation.keyFact)")
       } catch {
         memory.addError("Step \(index + 1): \(error)")
         memory.addObservation(StepObservation(
           tool: step.tool, outcome: "error", keyFact: "\(error)"
         ))
+        debug("EXEC[\(index + 1)] → [ERROR] \(error)")
       }
     }
 
     let reflection = try await reflect(memory: &memory)
+    debug("REFLECT → succeeded:\(reflection.succeeded) insight:\(reflection.insight)")
 
-    // Save reflection for future retrieval (reflexion loop)
     try? reflectionStore.save(query: query, reflection: reflection)
 
     metrics.tasksCompleted += 1
@@ -76,13 +104,57 @@ public actor Orchestrator {
     return RunResult(memory: memory, reflection: reflection)
   }
 
+  // MARK: - Conversational Query Handling
+
+  /// Detect and respond to non-coding queries directly.
+  /// Returns a response string if handled, nil if it should go through the pipeline.
+  private func handleConversational(_ query: String) -> String? {
+    let lower = query.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+
+    // Identity / meta questions
+    let identityPatterns = [
+      "who are you", "what are you", "introduce yourself",
+      "what is junco", "what can you do", "help me",
+    ]
+    if identityPatterns.contains(where: { lower.contains($0) }) {
+      return "I'm junco, an on-device AI coding agent running on Apple Foundation Models. " +
+        "I can fix bugs, add features, refactor code, explain code, write tests, and search your project. " +
+        "I work entirely locally — no cloud, no API keys. " +
+        "Detected domain: \(domain.displayName). Type /help for commands."
+    }
+
+    // Greetings
+    let greetings = ["hello", "hi", "hey", "good morning", "good evening", "howdy", "sup"]
+    if greetings.contains(where: { lower == $0 || lower.hasPrefix($0 + " ") || lower.hasPrefix($0 + ",") }) {
+      return "Hello! I'm junco, your local coding agent. What would you like to work on? " +
+        "Try something like: fix the bug in @main.swift, or: explain the auth module."
+    }
+
+    // Thank you
+    if lower.contains("thank") || lower == "thanks" || lower == "ty" {
+      return "You're welcome! Let me know if there's anything else."
+    }
+
+    // Too short / ambiguous to be a coding task (single word that isn't a known command)
+    let words = lower.split(separator: " ")
+    if words.count == 1 {
+      let knownSingleWords = Set(["fix", "test", "tests", "refactor", "search", "grep", "find", "build", "run", "lint", "explain"])
+      if !knownSingleWords.contains(lower) {
+        return nil  // Let the pipeline handle it — might be a file name
+      }
+    }
+
+    return nil
+  }
+
   // MARK: - Pipeline Stages
 
   private func classify(query: String, memory: inout WorkingMemory) async throws -> AgentIntent {
     // Try ML classifier first (10ms vs 2s LLM call)
-    if let mlResult = intentClassifier.classifyWithConfidence(query), mlResult.confidence > 0.7 {
+    if let mlResult = intentClassifier.classifyWithConfidence(query), mlResult.confidence > Config.mlClassifierConfidence {
       metrics.mlClassifications += 1
-      // ML handles taskType; fill other fields with heuristics
+      debug("ML classifier: \(mlResult.label) (confidence: \(String(format: "%.2f", mlResult.confidence)))")
+
       let fileList = files.listFiles()
       let targets = fileList.filter { path in
         query.lowercased().contains((path as NSString).lastPathComponent.lowercased())
@@ -96,6 +168,7 @@ public actor Orchestrator {
     }
 
     // Fall back to LLM
+    debug("ML classifier: low confidence, falling back to LLM")
     let fileList = files.listFiles().prefix(25).joined(separator: "\n")
     let prompt = Prompts.classifyPrompt(
       query: query,
@@ -121,7 +194,6 @@ public actor Orchestrator {
     query: String, intent: AgentIntent, strategy: AgentStrategy,
     memory: inout WorkingMemory
   ) async throws -> AgentPlan {
-    // Use RAG to select relevant context for planning
     let fileContext = contextPacker.pack(
       query: query,
       index: projectIndex,
@@ -142,7 +214,6 @@ public actor Orchestrator {
   private func executeStep(
     step: PlanStep, memory: inout WorkingMemory
   ) async throws -> StepObservation {
-    // Use RAG for code context: prefer target file, fall back to keyword search
     let codeContext: String
     if !step.target.isEmpty, files.exists(step.target) {
       codeContext = (try? files.read(path: step.target, maxTokens: 600)) ?? ""
@@ -155,8 +226,6 @@ public actor Orchestrator {
       )
     }
     let memoryStr = memory.compactDescription(tokenBudget: 200)
-
-    // Retrieve relevant past reflections
     let reflectionHint = reflectionStore.formatForPrompt(query: memory.query)
 
     let prompt = Prompts.executePrompt(
@@ -170,11 +239,13 @@ public actor Orchestrator {
       system: Prompts.executeSystem(domainHint: domain.promptHint),
       as: ToolChoice.self
     )
+    debug("  tool choice: \(choice.tool) — \(choice.reasoning)")
 
     // Phase 2: Resolve and execute
     let action = try await resolveToolAction(
       tool: choice.tool, step: step, codeContext: codeContext, memory: &memory
     )
+    debug("  action: \(action)")
 
     let toolOutput = await executeToolSafe(action: action, memory: &memory)
 
@@ -198,7 +269,6 @@ public actor Orchestrator {
       return .bash(command: p.command)
 
     case "read":
-      // Use target from plan if it exists, skip LLM call
       if !step.target.isEmpty, files.exists(step.target) {
         return .read(path: step.target)
       }
@@ -242,9 +312,8 @@ public actor Orchestrator {
     )
   }
 
-  // MARK: - Tool Execution (with retry for edits)
+  // MARK: - Tool Execution
 
-  /// Execute a tool action, capturing errors as strings instead of throwing.
   private func executeToolSafe(action: ToolAction, memory: inout WorkingMemory) async -> String {
     do {
       return try await executeTool(action: action, memory: &memory)
@@ -258,11 +327,11 @@ public actor Orchestrator {
     case .bash(let command):
       metrics.bashCommandsRun += 1
       let result = try await shell.execute(command)
-      return result.formatted(maxTokens: 400)
+      return result.formatted(maxTokens: Config.toolOutputMaxTokens)
 
     case .read(let path):
       memory.touch(path)
-      return try files.read(path: path, maxTokens: 800)
+      return try files.read(path: path, maxTokens: Config.fileReadMaxTokens)
 
     case .write(let path, let content):
       memory.touch(path)
@@ -277,7 +346,6 @@ public actor Orchestrator {
         try files.edit(path: path, find: find, replace: replace)
         return "Edited \(path)"
       } catch is FileToolError {
-        // Retry with fuzzy matching
         try files.edit(path: path, find: find, replace: replace, fuzzy: true)
         return "Edited \(path) (fuzzy match)"
       }
@@ -285,7 +353,7 @@ public actor Orchestrator {
     case .search(let pattern):
       let cmd = "grep -rn \(shellEscape(pattern)) . --include='*.swift' --include='*.js' --include='*.ts' --include='*.css' --include='*.html' | head -20"
       let result = try await shell.execute(cmd)
-      return result.formatted(maxTokens: 400)
+      return result.formatted(maxTokens: Config.toolOutputMaxTokens)
     }
   }
 
@@ -298,6 +366,13 @@ public actor Orchestrator {
 
   private func shellEscape(_ s: String) -> String {
     "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+  }
+
+  // MARK: - Debug
+
+  private func debug(_ message: String) {
+    guard verbose else { return }
+    FileHandle.standardError.write("[debug] \(message)\n".data(using: .utf8) ?? Data())
   }
 }
 
