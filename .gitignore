@@ -1,51 +1,31 @@
-# Demo
-demo.tape
-
 # macOS
 .DS_Store
 
 # Xcode
 xcuserdata/
 *.xcodeproj/
-*.hmap
-*.ipa
+DerivedData/
 *.dSYM.zip
 *.dSYM
-timeline.xctimeline
-playground.xcworkspace
-DerivedData/
 
 # Swift Package Manager
 .build/
 .swiftpm/
+Package.resolved
 
-# CocoaPods
-# Pods/
+# Junco runtime data (per-project)
+.junco/
 
-# Carthage
-Carthage/Build/
+# Training artifacts (large)
+Training/intent_data.json
+Training/IntentClassifier.mlmodel
+Training/IntentClassifier.mlmodelc/
+Training/model_metadata.json
+Training/stats.txt
 
-# fastlane
-fastlane/report.xml
-fastlane/Preview.html
-fastlane/screenshots/**/*.png
-fastlane/test_output
-
-# Environment
+# Environment (legacy)
 .env
 
-# Documentation
-docs/*
-!docs/s0[0-8].md
-CLAUDE.md
-
-# Test results
-tests/results/
-
-# ralphex
-.ralphex/progress/
-.ralphex/config
-
-# Agent runtime data
+# Legacy
 .transcripts/
 .tasks/

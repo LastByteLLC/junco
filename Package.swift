@@ -1,35 +1,35 @@
 // swift-tools-version: 6.2
-// The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
 
 let package = Package(
-  name: "swift-claude-code",
-  platforms: [.macOS(.v10_15)],
+  name: "junco",
+  platforms: [.macOS("26.0"), .iOS("26.0")],
   products: [
-    .executable(name: "agent", targets: ["cli"]),
-    .library(name: "Core", targets: ["Core"])
+    .executable(name: "junco", targets: ["junco"]),
+    .library(name: "JuncoKit", targets: ["JuncoKit"]),
   ],
   dependencies: [
-    .package(url: "https://github.com/swift-server/async-http-client.git", from: "1.32.0")
+    .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
   ],
   targets: [
-    .executableTarget(
-      name: "cli",
-      dependencies: ["Core"],
-      path: "Sources/cli"
-    ),
     .target(
-      name: "Core",
+      name: "JuncoKit",
+      dependencies: [],
+      path: "Sources/JuncoKit"
+    ),
+    .executableTarget(
+      name: "junco",
       dependencies: [
-        .product(name: "AsyncHTTPClient", package: "async-http-client")
+        "JuncoKit",
+        .product(name: "ArgumentParser", package: "swift-argument-parser"),
       ],
-      path: "Sources/Core"
+      path: "Sources/junco"
     ),
     .testTarget(
-      name: "CoreTests",
-      dependencies: ["Core"],
-      path: "Tests/CoreTests"
-    )
+      name: "JuncoTests",
+      dependencies: ["JuncoKit"],
+      path: "Tests/JuncoTests"
+    ),
   ]
 )

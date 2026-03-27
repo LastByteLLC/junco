@@ -1,142 +1,143 @@
-# swift-claude-code
+# junco
 
-Exploring the architecture of coding agents by rebuilding a Claude Code-style CLI from scratch in Swift.
+An AI coding agent that runs entirely on-device using Apple Foundation Models (AFM). No API keys, no cloud, no telemetry.
 
-![demo](demo.gif)
+Junco uses a micro-conversation pipeline to work within AFM's tiny 4K token context window — each stage (classify, plan, execute & reflect) is a separate LLM call with focused context and structured `@Generable` output. A trained CRF text classifier handles intent detection in ~10ms, and a reflexion loop stores insights for future tasks.
 
-## Learning Series
+## Quick Start
 
-A complete 9-part learning series is available on [ivanmagda.dev](https://ivanmagda.dev).
-
-[Start the series →](https://ivanmagda.dev/posts/s00-bootstrapping-the-project)
-
-## Why This Exists
-
-Claude Code feels unusually effective compared to other coding agents, and I suspect most of it comes from architectural restraint rather than architectural complexity. I studied the tool surface, traced the interaction loop, and tried to isolate which design choices actually matter.
-
-My working theory: **coding agents benefit more from a small set of excellent tools and tight loop design than from large orchestration layers.**
-
-Claude Code doesn't have many tools. The tools it does have are simple: a search tool, a file editing tool. But those tools are really good. And the system leans on the model far more than most agent implementations — less scaffolding, more trust in the LLM to do the heavy lifting.
-
-This project tests that idea by rebuilding the core mechanics from scratch in Swift, one stage at a time, to see how little architecture you actually need.
-
-## Hypothesis
-
-This project tests a few specific ideas about coding agents:
-
-- A small number of high-quality tools beats a large tool catalog
-- The model should do most of the heavy lifting — thin orchestration, not thick
-- Explicit task state improves reliability more than prompt-only planning
-- Controlled context injection matters more than persistent memory
-- Context compaction is a product feature, not just a token optimization
-
-Each stage is designed to isolate one mechanism and see what it enables.
-
-## The Agent Loop
-
-The whole thing boils down to one loop:
-
-```swift
-func run(query: String) async throws -> String {
-    messages.append(.user(query))
-
-    while true {
-        let request = APIRequest(
-            model: model, system: systemPrompt, messages: messages, tools: Self.toolDefinitions
-        )
-        let response = try await apiClient.createMessage(request)
-        messages.append(Message(role: .assistant, content: response.content))
-
-        guard response.stopReason == .toolUse else {
-            return response.content.textContent
-        }
-
-        var results: [ContentBlock] = []
-        for block in response.content {
-            if case .toolUse(let id, let name, let input) = block {
-                let output = await executeTool(name: name, input: input)
-                results.append(.toolResult(toolUseId: id, content: output, isError: false))
-            }
-        }
-        messages.append(Message(role: .user, content: results))
-    }
-}
+```bash
+git clone https://github.com/your-org/junco.git
+cd junco
+swift build
+swift run junco
 ```
 
-The loop is the invariant. Tools are the variable. Every stage adds entries to the tool handler dictionary and injection points before the API call, but the loop body itself never changes.
+Requires **macOS 26+** and **Apple Silicon** (M1+). No API keys or configuration needed — Apple Intelligence must be enabled in System Settings.
 
-## Roadmap
+## Usage
 
-Progress is tracked via git tags. The roadmap is split into two phases — core mechanics first, then product-level features.
+```
+junco> fix the login bug in @Sources/Auth.swift
+junco> explain how the payment flow works
+junco> add tests for the User model
+junco> /metrics
+junco> /undo
+```
 
-### Phase 1 — Core Loop
+### Commands
 
-The minimum viable agent: a loop and a small set of good tools.
+| Command | Description |
+| --- | --- |
+| `/help` | Show all commands |
+| `/clear` | Purge session context and turn history |
+| `/undo` | Revert last agent changes (requires git) |
+| `/metrics` | Token usage, energy estimate, call counts |
+| `/reflections [query]` | Show stored reflections, optionally filtered |
+| `/domain` | Detected project domain and build commands |
+| `/git` | Branch and change status |
+| `/context` | Multi-turn context from previous queries |
+| `/pastes` | List clipboard pastes in this session |
+| `exit` | End session with summary |
 
-| Stage | What It Adds                                                           | Tag                |
-| ----- | ---------------------------------------------------------------------- | ------------------ |
-| 00    | Bootstrap: SPM project, two-target layout, CI                          | `00-bootstrap`     |
-| 01    | Agent loop + bash tool                                                 | `01-agent-loop`    |
-| 02    | Tool dispatch: `read_file`, `write_file`, `edit_file` with path safety | `02-tool-dispatch` |
-| 03    | Todo tracking with nag reminder injection                              | `03-todo-write`    |
+### Pipe Mode
 
-### Phase 2 — Product Mechanics
+```bash
+echo "explain the main function" | junco --pipe --directory ./my-project
+```
 
-The features that make an agent feel like a usable product: context, memory management, and persistence.
+### `@`-File Targeting
 
-| Stage | What It Adds                                                 | Tag                     |
-| ----- | ------------------------------------------------------------ | ----------------------- |
-| 04    | Subagents: recursive loop with fresh context                 | `04-subagents`          |
-| 05    | Skill loading: `.md` files injected as tool results          | `05-skill-loading`      |
-| 06    | Context compaction: 3-layer strategy (micro, auto, manual)   | `06-context-compaction` |
-| 07    | Task system: file-based CRUD with dependency DAG             | `07-task-system`        |
-| 08    | Background tasks: `Task {}` + actor-based notification queue | `08-background-tasks`   |
+Prefix paths with `@` to explicitly target files. Junco resolves paths and injects content into the agent's context:
+
+```
+junco> refactor @src/api/handler.ts to use async/await
+```
 
 ## Architecture
 
-Two-target Swift Package Manager project:
+Junco processes queries through a 6-stage pipeline, each a separate LLM call:
 
-**Core** is the library — API client, shell executor, agent loop, tools.
-
-**CLI** is just the entry point. The executable is called `agent`.
-
-Raw HTTP to `POST https://api.anthropic.com/v1/messages` using [AsyncHTTPClient](https://github.com/swift-server/async-http-client). Works on both macOS and Linux.
-
-## Non-Goals
-
-This project is **not**:
-
-- A full Claude Code clone or drop-in replacement
-- A general-purpose multi-agent framework
-- Production-ready IDE tooling
-
-It's a staged exploration of coding-agent architecture — intentionally minimal, intentionally incomplete.
-
-## Tech Stack
-
-- **Swift 6.2** with strict concurrency
-- **AsyncHTTPClient** (SwiftNIO-based) for cross-platform HTTP + streaming SSE
-- **Foundation `Process`** for shell command execution
-- macOS 10.15+ / Linux
-
-## Getting Started
-
-```bash
-git clone https://github.com/ivan-magda/swift-claude-code.git
-cd swift-claude-code
-
-# Set up your API key and model
-cp .env.example .env
-# Edit .env with your ANTHROPIC_API_KEY and MODEL_ID
-
-swift build
-swift run agent
+```
+query → CLASSIFY → STRATEGY → PLAN → EXECUTE (2-phase) → REFLECT
+         10ms       ~2s        ~2s      ~2s × N steps      ~2s
+        (ML/CRF)   (AFM)      (AFM)      (AFM)            (AFM)
 ```
 
-## References
+**Two-phase tool execution** prevents the small on-device model from garbling fields — Phase 1 picks the tool (`ToolChoice`, 2 fields), Phase 2 fills tool-specific params (`BashParams`, `ReadParams`, `EditParams`, etc.).
 
-- [Anthropic Messages API](https://docs.anthropic.com/en/api/messages) — the single endpoint the entire agent talks to
-- [Anthropic Tool Use](https://docs.anthropic.com/en/docs/build-with-claude/tool-use/overview) — how tool definitions, `tool_use`, and `tool_result` work
+### Layers
+
+| Layer | Purpose | Files |
+| --- | --- | --- |
+| **Agent** | Pipeline orchestration, session management, reflexion, skills | 13 |
+| **Models** | `@Generable` structured types, token budget, config | 4 |
+| **LLM** | Adapter pattern (AFM now, extensible to OpenAI-compatible) | 3 |
+| **Tools** | Sandboxed shell, validated file ops, diff preview, FSEvents | 5 |
+| **RAG** | Regex symbol indexer (Swift + JS), BM25 context packing | 2 |
+| **Domain** | Auto-detect Swift/JS/general from marker files | 1 |
+| **TUI** | ANSI output with piped fallback, terminal title control | 1 |
+
+### Key Design Decisions
+
+- **Micro-conversations over long context** — AFM has ~4K tokens. Each pipeline stage sees only what it needs.
+- **`@Generable` structured output** — compile-time type safety, zero parsing overhead.
+- **ML for classification** — CRF model trained on 9.5K examples replaces one LLM call per task.
+- **Reflexion loop** — post-task reflections stored in `.junco/reflections.jsonl`, retrieved by keyword match for future similar tasks.
+- **MicroSkills** — token-capped prompt modifiers (e.g., "swift-test" forces Swift Testing patterns, "explain-only" disables write tools).
+
+## Domain Detection
+
+Junco auto-detects your project type:
+
+| Marker | Domain | Build | Test |
+| --- | --- | --- | --- |
+| `Package.swift` | Swift | `swift build` | `swift test` |
+| `package.json` | JavaScript | `npm run build` | `npm test` |
+| Neither | General | — | — |
+
+Override with `.junco/config.json`:
+
+```json
+{ "domain": "swift" }
+```
+
+## Project Files
+
+Junco creates a `.junco/` directory in your project for:
+
+- `reflections.jsonl` — learned insights from past tasks
+- `config.json` — manual domain override
+- `scratchpad.json` — persistent project notes
+- `skills.json` — custom micro-skills
+
+Global state lives in `~/.junco/`:
+
+- `junco.db` — SQLite with FTS5 for cross-project reflection search
+- `models/` — compiled ML models
+
+## Building
+
+```bash
+# Debug
+swift build
+
+# Release (2.5MB binary)
+swift build -c release
+
+# Run tests
+swift test
+
+# Install
+cp .build/release/junco /usr/local/bin/
+```
+
+## Requirements
+
+- macOS 26.0+
+- Apple Silicon (M1/M2/M3/M4/M5)
+- Apple Intelligence enabled
+- Xcode 26+ or Swift 6.2+ toolchain
 
 ## License
 

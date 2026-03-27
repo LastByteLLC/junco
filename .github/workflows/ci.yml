@@ -11,21 +11,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  swiftlint:
-    name: SwiftLint
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install or upgrade SwiftLint
-        run: brew install swiftlint || brew upgrade swiftlint
-
-      - name: Run SwiftLint
-        run: swiftlint --strict
-
-  build-and-test-macos:
-    name: macOS
-    runs-on: macos-latest
+  build-and-test:
+    name: Build & Test
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
@@ -44,35 +32,35 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-spm-
 
-      - name: Build
+      - name: Build (debug)
         run: swift build
 
       - name: Run tests
         run: swift test
 
-  build-and-test-linux:
-    name: Linux
-    runs-on: ubuntu-latest
+      - name: Build (release)
+        run: swift build -c release
+
+      - name: Verify binary
+        run: |
+          file .build/release/junco
+          .build/release/junco --version
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: junco-arm64
+          path: .build/release/junco
+          if-no-files-found: error
+
+  swiftlint:
+    name: SwiftLint
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Swift
-        uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: "6.2"
+      - name: Install SwiftLint
+        run: brew install swiftlint || brew upgrade swiftlint
 
-      - name: Cache SPM dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            .build
-            ~/.cache/org.swift.swiftpm
-          key: ${{ runner.os }}-spm-${{ hashFiles('Package.swift', 'Package.resolved') }}
-          restore-keys: |
-            ${{ runner.os }}-spm-
-
-      - name: Build
-        run: swift build
-
-      - name: Run tests
-        run: swift test
+      - name: Lint
+        run: swiftlint --strict
