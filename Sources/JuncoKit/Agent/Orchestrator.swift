@@ -645,8 +645,8 @@ public actor Orchestrator {
 
   private func debug(_ message: String) {
     guard verbose else { return }
-    // Very dim gray so debug doesn't compete with actual output
-    let styled = "\u{1B}[2;90m[debug] \(message)\u{1B}[0m\n"
+    // Dim gray — visible if you look for it but doesn't compete with output
+    let styled = "\u{1B}[2m[debug] \(message)\u{1B}[0m\n"
     FileHandle.standardError.write(styled.data(using: .utf8) ?? Data())
   }
 }
