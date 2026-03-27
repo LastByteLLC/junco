@@ -11,6 +11,7 @@ public actor Orchestrator {
   private let adapter: AFMAdapter
   private let shell: SafeShell
   private let files: FileTools
+  private let jsValidator: JSCValidator
   private let contextPacker: ContextPacker
   private let reflectionStore: ReflectionStore
   private let skillLoader: SkillLoader
@@ -41,6 +42,7 @@ public actor Orchestrator {
     self.adapter = adapter
     self.workingDirectory = workingDirectory
     self.shell = SafeShell(workingDirectory: workingDirectory)
+    self.jsValidator = JSCValidator()
     self.files = FileTools(workingDirectory: workingDirectory)
     self.contextPacker = ContextPacker(workingDirectory: workingDirectory)
     self.reflectionStore = ReflectionStore(projectDirectory: workingDirectory)
@@ -571,6 +573,12 @@ public actor Orchestrator {
       // Permission check
       let decision = permissionService.ask(tool: "write", target: path, detail: "\(content.count) chars")
       guard decision != .deny else { return "DENIED: write to \(path)" }
+
+      // JSC validation for JavaScript files (catch errors before writing)
+      if let feedback = jsValidator.feedbackForLLM(code: content, filePath: path) {
+        debug("JSC validation failed for \(path): \(feedback)")
+        return "VALIDATION FAILED: \(feedback)"
+      }
 
       // Capture diff
       let existing = try? files.read(path: path, maxTokens: 2000)
