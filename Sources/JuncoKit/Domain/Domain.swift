@@ -146,8 +146,27 @@ public struct DomainDetector: Sendable {
 /// Manual project configuration stored in .junco/config.json.
 public struct JuncoConfig: Codable, Sendable {
   public var domain: DomainKind?
+  public var notifications: NotificationConfig?
 
-  public init(domain: DomainKind? = nil) {
+  public init(domain: DomainKind? = nil, notifications: NotificationConfig? = nil) {
     self.domain = domain
+    self.notifications = notifications
   }
+
+  /// Load config from a project directory. Returns defaults if not found.
+  public static func load(from workingDirectory: String) -> JuncoConfig {
+    let path = (workingDirectory as NSString)
+      .appendingPathComponent("\(Config.projectDirName)/config.json")
+    guard let data = FileManager.default.contents(atPath: path),
+          let config = try? JSONDecoder().decode(JuncoConfig.self, from: data)
+    else { return JuncoConfig() }
+    return config
+  }
+}
+
+/// Notification settings within .junco/config.json.
+public struct NotificationConfig: Codable, Sendable {
+  public var enabled: Bool?
+  public var thresholdSeconds: Int?
+  public var method: String?  // "system", "bell", "none"
 }

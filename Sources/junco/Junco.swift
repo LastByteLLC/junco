@@ -85,8 +85,11 @@ struct Junco: AsyncParsableCommand {
       workingDirectory: cwd, domain: domain.kind.rawValue
     )
 
-    // Request notification authorization (async, non-blocking)
-    Task { await notifications.requestAuthorization() }
+    // Start background services (async, non-blocking)
+    Task {
+      await notifications.requestAuthorization()
+      await orchestrator.startFileWatcher()
+    }
 
     // Line editor with completers
     let driver = TerminalDriver()
@@ -102,7 +105,7 @@ struct Junco: AsyncParsableCommand {
       let line: String?
       if let editor, let driver {
         driver.enableRawMode()
-        line = editor.readLine(driver: driver)
+        line = editor.readLine(driver: driver, history: history)
         driver.restoreMode()
       } else {
         print(promptStr, terminator: "")

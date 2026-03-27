@@ -24,11 +24,28 @@ public enum Key: Equatable, Sendable {
   case unknown(UInt8)
 }
 
+// MARK: - Terminal IO Protocol
+
+/// Abstraction for terminal I/O, allowing real and virtual implementations.
+/// Used by LineEditor and other TUI components.
+public protocol TerminalIO: AnyObject {
+  func readKey() -> Key
+  func write(_ text: String)
+  func flush()
+  func beginRedraw()
+  func moveTo(column: Int)
+  func moveUp(_ n: Int)
+  func moveDown(_ n: Int)
+  func newline()
+  var screenWidth: Int { get }
+  var screenHeight: Int { get }
+}
+
 // MARK: - Terminal Driver
 
 /// Low-level terminal driver for interactive TUI rendering.
 /// Manages raw mode, input, and buffered output.
-public final class TerminalDriver: @unchecked Sendable {
+public final class TerminalDriver: @unchecked Sendable, TerminalIO {
   private var originalTermios = termios()
   private var isRaw = false
   private var outputBuffer = Data()

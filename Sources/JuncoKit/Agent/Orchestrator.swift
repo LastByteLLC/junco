@@ -18,21 +18,21 @@ public actor Orchestrator {
   private let buildRunner: BuildRunner
   private let diffPreview: DiffPreview
   private let permissionService: PermissionService
+  private let patchApplier: PatchApplier
+  private let fileWatcher: FileWatcher
   private let workingDirectory: String
   public let domain: DomainConfig
   private let intentClassifier: IntentClassifier
 
   private var projectIndex: [IndexEntry] = []
+  private var needsReindex = true
 
   public private(set) var verbose: Bool = false
   public func setVerbose(_ value: Bool) { verbose = value }
 
   public private(set) var metrics: SessionMetrics
 
-  /// Diffs captured during execution for display.
   public private(set) var lastDiffs: [String] = []
-
-  /// Build verification result from last run.
   public private(set) var lastBuildResult: String?
 
   public init(adapter: AFMAdapter, workingDirectory: String) {
@@ -49,10 +49,24 @@ public actor Orchestrator {
       domain: DomainDetector(workingDirectory: workingDirectory).detect()
     )
     self.diffPreview = DiffPreview()
+    self.patchApplier = PatchApplier(workingDirectory: workingDirectory)
     self.permissionService = PermissionService(workingDirectory: workingDirectory)
     self.domain = DomainDetector(workingDirectory: workingDirectory).detect()
     self.intentClassifier = IntentClassifier()
+    self.fileWatcher = FileWatcher(directory: workingDirectory)
     self.metrics = SessionMetrics()
+  }
+
+  /// Start background file watching. Call once after init.
+  public func startFileWatcher() async {
+    await fileWatcher.start { [weak self] in
+      Task { await self?.markNeedsReindex() }
+    }
+  }
+
+  private func markNeedsReindex() {
+    needsReindex = true
+    debug("FileWatcher: changes detected, will reindex on next run")
   }
 
   // MARK: - Public API
@@ -91,10 +105,13 @@ public actor Orchestrator {
       debug("URL context: \(TokenBudget.estimate(urlCtx)) tokens")
     }
 
-    // Build project index
-    let indexer = FileIndexer(workingDirectory: workingDirectory)
-    projectIndex = indexer.indexProject(extensions: domain.fileExtensions)
-    debug("Indexed \(projectIndex.count) symbols from \(domain.displayName) project")
+    // Build or refresh project index
+    if needsReindex || projectIndex.isEmpty {
+      let indexer = FileIndexer(workingDirectory: workingDirectory)
+      projectIndex = indexer.indexProject(extensions: domain.fileExtensions)
+      needsReindex = false
+      debug("Indexed \(projectIndex.count) symbols from \(domain.displayName) project")
+    }
 
     // Classify
     let intent = try await classify(query: query, memory: &memory, explicitTargets: referencedFiles)
@@ -404,6 +421,14 @@ public actor Orchestrator {
       )
       return .edit(path: p.filePath, find: p.find, replace: p.replace)
 
+    case "patch":
+      let p = try await adapter.generateStructured(
+        prompt: "\(base)\n\nFile content:\n\(codeContext)",
+        system: "Generate a unified diff patch for this file. Use +/- line prefixes and @@ hunk headers.",
+        as: PatchParams.self
+      )
+      return .patch(path: p.filePath, diff: p.patch)
+
     case "search":
       let p = try await adapter.generateStructured(
         prompt: base, system: "Specify a grep pattern.", as: SearchParams.self
@@ -481,6 +506,26 @@ public actor Orchestrator {
         }
       }
       return "Edited \(path)"
+
+    case .patch(let path, let diff):
+      let decision = permissionService.ask(tool: "edit", target: path, detail: "apply patch")
+      guard decision != .deny else { return "DENIED: patch \(path)" }
+
+      let before = try? files.read(path: path, maxTokens: 2000)
+      memory.touch(path)
+      metrics.filesModified += 1
+
+      do {
+        try patchApplier.apply(patch: diff, to: path)
+        if let before {
+          let after = (try? files.read(path: path, maxTokens: 2000)) ?? ""
+          let d = diffPreview.diffWrite(filePath: path, existingContent: before, newContent: after)
+          lastDiffs.append(d)
+        }
+        return "Patched \(path)"
+      } catch {
+        return "Patch failed: \(error)"
+      }
 
     case .search(let pattern):
       let cmd = "grep -rn \(shellEscape(pattern)) . --include='*.swift' --include='*.js' --include='*.ts' --include='*.css' --include='*.html' | head -20"

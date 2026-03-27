@@ -10,11 +10,18 @@ public struct CommandHistory: Sendable {
   private let path: String
   private let maxEntries: Int
 
-  public init(maxEntries: Int = 500) {
+  /// - Parameters:
+  ///   - maxEntries: Maximum history entries to keep.
+  ///   - path: Custom file path (for testing). Defaults to ~/.junco/history.
+  public init(maxEntries: Int = 500, path: String? = nil) {
     self.maxEntries = maxEntries
-    let dir = Config.globalDir
-    try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-    self.path = (dir as NSString).appendingPathComponent("history")
+    if let path {
+      self.path = path
+    } else {
+      let dir = Config.globalDir
+      try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+      self.path = (dir as NSString).appendingPathComponent("history")
+    }
   }
 
   /// Load all history entries (most recent last).

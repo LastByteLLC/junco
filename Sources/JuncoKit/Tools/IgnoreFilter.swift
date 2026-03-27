@@ -24,6 +24,7 @@ public struct IgnoreFilter: Sendable {
       custom = content.components(separatedBy: "\n")
         .map { $0.trimmingCharacters(in: .whitespaces) }
         .filter { !$0.isEmpty && !$0.hasPrefix("#") }
+        .map { $0.hasSuffix("/") ? String($0.dropLast()) : $0 }  // Strip trailing /
     }
     self.patterns = Self.builtinIgnores + custom
   }

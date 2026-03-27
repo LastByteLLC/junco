@@ -123,12 +123,23 @@ public struct SearchParams: Codable, Sendable {
   public var pattern: String
 }
 
+/// Patch tool parameters (unified diff to apply).
+@Generable
+public struct PatchParams: Codable, Sendable {
+  @Guide(description: "File path to patch")
+  public var filePath: String
+
+  @Guide(description: "Unified diff content to apply (lines starting with + or - or space)")
+  public var patch: String
+}
+
 /// Unified action result for internal use (not @Generable).
 public enum ToolAction: Sendable {
   case bash(command: String)
   case read(path: String)
   case write(path: String, content: String)
   case edit(path: String, find: String, replace: String)
+  case patch(path: String, diff: String)
   case search(pattern: String)
 }
 

@@ -1,35 +1,20 @@
-// LineEditor.swift — Interactive line editor with pluggable completions
+// LineEditor.swift — Interactive line editor with completions and history
 //
-// Built on TerminalDriver. Supports:
-// - Full cursor movement (arrows, home, end)
-// - @file path completion with dropdown
-// - /command type-ahead
-// - Ctrl-U (clear line), Ctrl-W (delete word), Ctrl-C (cancel)
-//
-// Rendering: each keypress triggers a full redraw via TerminalDriver.beginRedraw().
-// All output is buffered and flushed once per render cycle — no tearing.
-//
-// Future extensions plug in via CompletionProvider protocol:
-// syntax highlighting, multi-choice prompts, etc.
+// Built on TerminalIO protocol (works with TerminalDriver or VirtualTerminalDriver).
+// Supports: @file completion, /command type-ahead, command history (up/down),
+// cursor movement, Ctrl-U/W, tab accept, escape dismiss.
 
 import Foundation
 
 // MARK: - Completion Protocol
 
-/// Provides contextual completions for user input.
 public protocol CompletionProvider: Sendable {
-  /// Return completions for the current input state.
-  /// Empty array means "no completions from this provider."
   func completions(for input: String, cursorPosition: Int) -> [Completion]
 }
 
-/// A single completion suggestion.
 public struct Completion: Sendable {
-  /// Text shown in the dropdown.
   public let display: String
-  /// Text inserted into the buffer when accepted.
   public let insertion: String
-  /// Character offset in the buffer where insertion replaces from.
   public let replaceFrom: Int
 
   public init(display: String, insertion: String, replaceFrom: Int) {
@@ -41,7 +26,6 @@ public struct Completion: Sendable {
 
 // MARK: - File Completer
 
-/// Completes @file paths from the project's file listing.
 public struct FileCompleter: CompletionProvider {
   private let files: FileTools
   private let maxResults: Int
@@ -78,12 +62,11 @@ public struct FileCompleter: CompletionProvider {
 
 // MARK: - Command Completer
 
-/// Type-ahead for /slash commands.
 public struct CommandCompleter: CompletionProvider {
   public static let allCommands = [
     "/clear", "/context", "/domain", "/git",
-    "/help", "/metrics", "/paste", "/pastes",
-    "/reflections", "/undo",
+    "/help", "/metrics", "/notes", "/paste", "/pastes",
+    "/reflections", "/search", "/session", "/undo",
   ]
 
   private let maxResults: Int
@@ -113,16 +96,7 @@ public struct CommandCompleter: CompletionProvider {
 
 // MARK: - Line Editor
 
-/// Interactive line editor with completion dropdown.
-///
-/// Usage:
-/// ```swift
-/// let driver = TerminalDriver()!
-/// let editor = LineEditor(prompt: "junco> ", completers: [...])
-/// driver.enableRawMode()
-/// let input = editor.readLine(driver: driver)
-/// driver.restoreMode()
-/// ```
+/// Interactive line editor with completion dropdown and command history.
 public struct LineEditor: Sendable {
   private let prompt: String
   private let promptWidth: Int
@@ -134,12 +108,14 @@ public struct LineEditor: Sendable {
     self.completers = completers
   }
 
-  /// Read a line interactively. Returns the submitted text, or nil on cancel/EOF.
-  public func readLine(driver: TerminalDriver) -> String? {
+  /// Read a line interactively. Returns submitted text, or nil on cancel/EOF.
+  /// Pass a CommandHistory to enable up/down arrow history navigation.
+  public func readLine(driver: any TerminalIO, history: CommandHistory? = nil) -> String? {
     var buf: [Character] = []
     var cur = 0
     var completions: [Completion] = []
-    var sel = -1  // -1 = no selection
+    var sel = -1
+    var historyNav = history.map { HistoryNavigator(history: $0) }
 
     render(driver: driver, buffer: buf, cursor: cur, completions: completions, selected: sel)
 
@@ -152,6 +128,7 @@ public struct LineEditor: Sendable {
         buf.insert(ch, at: cur)
         cur += 1
         sel = -1
+        historyNav?.reset()
         completions = queryCompletions(buf: buf, cur: cur)
 
       case .backspace:
@@ -166,13 +143,13 @@ public struct LineEditor: Sendable {
         buf.remove(at: cur)
         completions = queryCompletions(buf: buf, cur: cur)
 
-      case .ctrlU:  // Clear entire line
+      case .ctrlU:
         buf.removeAll()
         cur = 0
         sel = -1
         completions = []
 
-      case .ctrlW:  // Delete previous word
+      case .ctrlW:
         while cur > 0 && buf[cur - 1] == " " { cur -= 1; buf.remove(at: cur) }
         while cur > 0 && buf[cur - 1] != " " { cur -= 1; buf.remove(at: cur) }
         sel = -1
@@ -181,31 +158,48 @@ public struct LineEditor: Sendable {
       // --- Cursor movement ---
       case .left:
         if cur > 0 { cur -= 1 }
-        continue  // Don't requery completions on pure movement
+        render(driver: driver, buffer: buf, cursor: cur, completions: completions, selected: sel)
+        continue
 
       case .right:
         if cur < buf.count { cur += 1 }
+        render(driver: driver, buffer: buf, cursor: cur, completions: completions, selected: sel)
         continue
 
       case .home:
         cur = 0
+        render(driver: driver, buffer: buf, cursor: cur, completions: completions, selected: sel)
         continue
 
       case .end:
         cur = buf.count
+        render(driver: driver, buffer: buf, cursor: cur, completions: completions, selected: sel)
         continue
 
-      // --- Completion navigation ---
+      // --- Up/Down: completions take priority, then history ---
       case .up:
         if !completions.isEmpty {
           sel = sel <= 0 ? completions.count - 1 : sel - 1
+        } else if var nav = historyNav {
+          if let entry = nav.up(currentInput: String(buf)) {
+            buf = Array(entry)
+            cur = buf.count
+          }
+          historyNav = nav
         }
 
       case .down:
         if !completions.isEmpty {
           sel = sel >= completions.count - 1 ? 0 : sel + 1
+        } else if var nav = historyNav {
+          if let entry = nav.down() {
+            buf = Array(entry)
+            cur = buf.count
+          }
+          historyNav = nav
         }
 
+      // --- Completion accept ---
       case .tab:
         if !completions.isEmpty {
           let idx = sel >= 0 ? sel : 0
@@ -218,20 +212,19 @@ public struct LineEditor: Sendable {
         completions = []
         sel = -1
 
-      // --- Submission ---
+      // --- Submit ---
       case .enter:
         if sel >= 0 && !completions.isEmpty {
-          // Accept the selected completion
           accept(completions[sel], buf: &buf, cur: &cur)
           completions = []
           sel = -1
         } else {
-          // Submit the line
           finalRender(driver: driver, buffer: buf)
+          historyNav?.reset()
           return buf.isEmpty ? nil : String(buf)
         }
 
-      // --- Cancel / EOF ---
+      // --- Cancel ---
       case .ctrlC:
         finalRender(driver: driver, buffer: buf)
         return nil
@@ -242,11 +235,8 @@ public struct LineEditor: Sendable {
           return nil
         }
 
-      case .ctrlL:  // Refresh screen
-        break
-
-      case .eof:
-        return nil
+      case .ctrlL, .eof:
+        if key == .eof { return nil }
 
       case .unknown:
         continue
@@ -258,9 +248,8 @@ public struct LineEditor: Sendable {
 
   // MARK: - Rendering
 
-  /// Full render cycle: clear prompt region, draw prompt + buffer + completions, position cursor.
   private func render(
-    driver: TerminalDriver,
+    driver: any TerminalIO,
     buffer: [Character],
     cursor: Int,
     completions: [Completion],
@@ -268,14 +257,10 @@ public struct LineEditor: Sendable {
   ) {
     let text = String(buffer)
 
-    // 1. Move to column 1 and clear everything from here down
     driver.beginRedraw()
-
-    // 2. Draw prompt + input text
     driver.write(prompt)
     driver.write(text)
 
-    // 3. Draw completions below (each on its own line)
     if !completions.isEmpty {
       for (i, c) in completions.enumerated() {
         driver.newline()
@@ -285,20 +270,14 @@ public struct LineEditor: Sendable {
           driver.write("  " + TerminalDriver.dim(c.display))
         }
       }
-
-      // 4. Move cursor back up to the prompt line
       driver.moveUp(completions.count)
     }
 
-    // 5. Position cursor at the right column in the input
     driver.moveTo(column: promptWidth + cursor + 1)
-
-    // 6. Single flush — everything appears at once
     driver.flush()
   }
 
-  /// Final render before returning: clear completions, show the final line, newline.
-  private func finalRender(driver: TerminalDriver, buffer: [Character]) {
+  private func finalRender(driver: any TerminalIO, buffer: [Character]) {
     driver.beginRedraw()
     driver.write(prompt)
     driver.write(String(buffer))
@@ -306,7 +285,7 @@ public struct LineEditor: Sendable {
     driver.flush()
   }
 
-  // MARK: - Completion Logic
+  // MARK: - Helpers
 
   private func queryCompletions(buf: [Character], cur: Int) -> [Completion] {
     let input = String(buf)
