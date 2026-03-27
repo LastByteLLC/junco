@@ -5,20 +5,27 @@ import Testing
 
 @Suite("Prompts")
 struct PromptsTests {
-  @Test("plan system prompt includes all tools")
+  @Test("plan system prompt includes all tools including create")
   func planToolList() {
     let system = Prompts.planSystem
-    for tool in ["bash", "read", "write", "edit", "patch", "search"] {
+    for tool in ["bash", "read", "create", "write", "edit", "patch", "search"] {
       #expect(system.contains(tool), "Plan prompt missing tool: \(tool)")
     }
   }
 
-  @Test("execute system prompt includes all tools")
+  @Test("execute system prompt includes all tools including create")
   func executeToolList() {
     let system = Prompts.executeSystem()
-    for tool in ["bash", "read", "write", "edit", "patch", "search"] {
+    for tool in ["bash", "read", "create", "write", "edit", "patch", "search"] {
       #expect(system.contains(tool), "Execute prompt missing tool: \(tool)")
     }
+  }
+
+  @Test("plan system prompt guides create for new files")
+  func planCreateGuidance() {
+    let system = Prompts.planSystem
+    #expect(system.contains("create a new file"))
+    #expect(system.contains("use create"))
   }
 
   @Test("execute system prompt includes domain hint when provided")

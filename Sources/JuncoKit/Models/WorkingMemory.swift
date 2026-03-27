@@ -11,6 +11,9 @@ public struct WorkingMemory: Sendable {
   /// The original user query.
   public var query: String
 
+  /// Project working directory (for prompt injection).
+  public var workingDirectory: String
+
   /// Classified intent (set after classify stage).
   public var intent: AgentIntent?
 
@@ -38,8 +41,16 @@ public struct WorkingMemory: Sendable {
   /// Total tokens used (estimated).
   public var totalTokensUsed: Int = 0
 
-  public init(query: String) {
+  public init(query: String, workingDirectory: String = "") {
     self.query = query
+    self.workingDirectory = workingDirectory
+  }
+
+  /// Deterministic success check — does not rely on AFM's judgment.
+  /// Returns true only if at least one step succeeded and no unresolved errors remain.
+  public var didSucceed: Bool {
+    guard observations.contains(where: { $0.outcome == "ok" }) else { return false }
+    return errors.isEmpty || observations.last?.outcome == "ok"
   }
 
   // MARK: - Compact serialization for prompt injection
@@ -48,6 +59,13 @@ public struct WorkingMemory: Sendable {
   /// Target: ~200-300 tokens.
   public func compactDescription(tokenBudget: Int = 300) -> String {
     var parts: [String] = []
+
+    // Inject project root (last 2 path components to save tokens)
+    if !workingDirectory.isEmpty {
+      let components = (workingDirectory as NSString).pathComponents
+      let short = components.suffix(2).joined(separator: "/")
+      parts.append("Project root: \(short)")
+    }
 
     parts.append("Task: \(query)")
 

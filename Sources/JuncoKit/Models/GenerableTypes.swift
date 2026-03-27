@@ -57,7 +57,7 @@ public struct PlanStep: Codable, Sendable {
   @Guide(description: "What to do in this step")
   public var instruction: String
 
-  @Guide(description: "Tool to use: bash, read, write, edit, or search")
+  @Guide(description: "Tool to use: bash, read, create, write, edit, or search")
   public var tool: String
 
   @Guide(description: "Target file path or command, if known")
@@ -72,7 +72,7 @@ public struct PlanStep: Codable, Sendable {
 /// First phase: choose which tool to use.
 @Generable
 public struct ToolChoice: Codable, Sendable {
-  @Guide(description: "Tool to use: bash, read, write, edit, or search")
+  @Guide(description: "Tool to use: bash, read, create, write, edit, or search")
   public var tool: String
 
   @Guide(description: "Brief reasoning for choosing this tool")
@@ -93,10 +93,20 @@ public struct ReadParams: Codable, Sendable {
   public var filePath: String
 }
 
-/// Write tool parameters.
+/// Create tool parameters (new file only).
+@Generable
+public struct CreateParams: Codable, Sendable {
+  @Guide(description: "Path for the new file to create")
+  public var filePath: String
+
+  @Guide(description: "Complete content for the new file")
+  public var content: String
+}
+
+/// Write tool parameters (overwrite existing file).
 @Generable
 public struct WriteParams: Codable, Sendable {
-  @Guide(description: "File path to write")
+  @Guide(description: "File path to overwrite")
   public var filePath: String
 
   @Guide(description: "Complete file content to write")
@@ -137,6 +147,7 @@ public struct PatchParams: Codable, Sendable {
 public enum ToolAction: Sendable {
   case bash(command: String)
   case read(path: String)
+  case create(path: String, content: String)
   case write(path: String, content: String)
   case edit(path: String, find: String, replace: String)
   case patch(path: String, diff: String)

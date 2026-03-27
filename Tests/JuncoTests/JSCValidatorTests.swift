@@ -36,7 +36,7 @@ struct JSCValidatorTests {
   }
 
   @Test("test assertions pass")
-  func testPass() {
+  func testAssertionsPass() {
     let result = validator.validate(
       code: "function add(a, b) { return a + b; }",
       testCode: "if (add(2,3) !== 5) throw new Error('wrong')"

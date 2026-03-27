@@ -82,15 +82,25 @@ struct GenerableTypesTests {
     #expect(decoded.startingPoints.count == 2)
   }
 
-  @Test("ToolAction enum covers all cases")
+  @Test("CreateParams round-trips")
+  func createParamsCodable() throws {
+    let params = CreateParams(filePath: "index.html", content: "<h1>Hello</h1>")
+    let data = try JSONEncoder().encode(params)
+    let decoded = try JSONDecoder().decode(CreateParams.self, from: data)
+    #expect(decoded.filePath == "index.html")
+    #expect(decoded.content == "<h1>Hello</h1>")
+  }
+
+  @Test("ToolAction enum covers all cases including create")
   func toolActionCases() {
     let actions: [ToolAction] = [
       .bash(command: "ls"),
       .read(path: "file.swift"),
+      .create(path: "new.swift", content: "code"),
       .write(path: "file.swift", content: "code"),
       .edit(path: "file.swift", find: "old", replace: "new"),
       .search(pattern: "TODO"),
     ]
-    #expect(actions.count == 5)
+    #expect(actions.count == 6)
   }
 }

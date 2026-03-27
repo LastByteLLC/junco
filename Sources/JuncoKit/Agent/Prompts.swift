@@ -5,8 +5,9 @@
 
 /// Central tool description used in both plan and execute prompts.
 private let toolList = """
-  bash (run shell command), read (read file), write (create/overwrite file), \
-  edit (find-replace in file), patch (apply unified diff), search (grep pattern)
+  bash (run shell command), read (read file), create (create new file), \
+  write (overwrite existing file), edit (find-replace in file), \
+  patch (apply unified diff), search (grep pattern)
   """
 
 /// Prompt templates for each pipeline stage.
@@ -46,7 +47,9 @@ public enum Prompts {
     Tools: \(toolList). \
     IMPORTANT: Only plan actions the user explicitly asked for. \
     If the user asks to read or explain, do NOT plan edits or writes. \
-    If the user asks to fix or add, plan read first, then edit/write. Be minimal.
+    If the user asks to fix existing code, read the file first, then edit. \
+    If the user asks to create a new file, use create (not write, not edit). \
+    Use the fewest steps possible. For creating one file, plan one create step.
     """
 
   public static func planPrompt(

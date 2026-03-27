@@ -92,7 +92,7 @@ public actor Orchestrator {
     urlContext: String? = nil,
     callbacks: PipelineCallbacks = .none
   ) async throws -> RunResult {
-    var memory = WorkingMemory(query: query)
+    var memory = WorkingMemory(query: query, workingDirectory: workingDirectory)
     lastDiffs = []
     lastBuildResult = nil
     activeCallbacks = callbacks
@@ -173,7 +173,12 @@ public actor Orchestrator {
       memory: &memory, explicitContext: explicitContext
     )
 
-    let maxSteps = 8
+    let maxSteps: Int
+    switch intent.complexity {
+    case "simple": maxSteps = 3
+    case "moderate": maxSteps = 5
+    default: maxSteps = 8
+    }
     let cappedSteps = Array(plan.steps.prefix(maxSteps))
     if plan.steps.count > maxSteps {
       debug("PLAN capped from \(plan.steps.count) to \(maxSteps) steps")
@@ -214,7 +219,7 @@ public actor Orchestrator {
           let observation = try await executeStep(step: step, memory: &memory)
           memory.addObservation(observation)
           lastActions.append((tool: observation.tool, target: step.target))
-          if ["write", "edit", "patch"].contains(observation.tool) {
+          if ["create", "write", "edit", "patch"].contains(observation.tool) {
             filesWereModified = true
           }
           debug("EXEC[\(index + 1)] → [\(observation.outcome)] \(observation.tool): \(observation.keyFact)")
@@ -506,14 +511,14 @@ public actor Orchestrator {
     tool: String, step: PlanStep, codeContext: String,
     memory: inout WorkingMemory
   ) async throws -> ToolAction {
-    let base = "Step: \(step.instruction)\nTarget: \(step.target)"
+    let base = "Step: \(step.instruction)\nTarget: \(step.target)\nProject root: \(workingDirectory)"
     memory.trackCall(estimatedTokens: 600)
 
     switch tool.lowercased() {
     case "bash":
       let p = try await adapter.generateStructured(
         prompt: base,
-        system: "Generate a bash command. Working directory is the project root.",
+        system: "Generate a bash command. Working directory: \(workingDirectory). Use relative paths.",
         as: BashParams.self
       )
       return .bash(command: p.command)
@@ -527,21 +532,32 @@ public actor Orchestrator {
       )
       return .read(path: p.filePath)
 
+    case "create":
+      let p = try await adapter.generateStructured(
+        prompt: "\(base)\nUser request: \(TokenBudget.truncate(memory.query, toTokens: 150))",
+        system: "Generate file path and complete content for a new file. Follow the user's request precisely.",
+        as: CreateParams.self
+      )
+      let path = step.target.isEmpty ? p.filePath : step.target
+      return .create(path: path, content: p.content)
+
     case "write":
       let p = try await adapter.generateStructured(
-        prompt: "\(base)\n\nExisting:\n\(codeContext)",
-        system: "Generate file path and complete content to write.",
+        prompt: "\(base)\nUser request: \(TokenBudget.truncate(memory.query, toTokens: 150))\n\nExisting:\n\(codeContext)",
+        system: "Generate file path and complete content to write. Follow the user's request precisely.",
         as: WriteParams.self
       )
-      return .write(path: p.filePath, content: p.content)
+      let writePath = step.target.isEmpty ? p.filePath : step.target
+      return .write(path: writePath, content: p.content)
 
     case "edit":
       let p = try await adapter.generateStructured(
-        prompt: "\(base)\n\nFile content:\n\(codeContext)",
+        prompt: "\(base)\nUser request: \(TokenBudget.truncate(memory.query, toTokens: 150))\n\nFile content:\n\(codeContext)",
         system: "Specify exact text to find and its replacement. Find text must match the file exactly.",
         as: EditParams.self
       )
-      return .edit(path: p.filePath, find: p.find, replace: p.replace)
+      let editPath = step.target.isEmpty ? p.filePath : step.target
+      return .edit(path: editPath, find: p.find, replace: p.replace)
 
     case "patch":
       let p = try await adapter.generateStructured(
@@ -565,9 +581,13 @@ public actor Orchestrator {
   private func reflect(memory: inout WorkingMemory) async throws -> AgentReflection {
     let prompt = Prompts.reflectPrompt(memory: memory)
     memory.trackCall(estimatedTokens: TokenBudget.reflect.total)
-    return try await adapter.generateStructured(
+    var reflection = try await adapter.generateStructured(
       prompt: prompt, system: Prompts.reflectSystem, as: AgentReflection.self
     )
+    // Override AFM's succeeded judgment with deterministic check —
+    // AFM almost always generates true regardless of actual outcomes.
+    reflection.succeeded = memory.didSucceed
+    return reflection
   }
 
   // MARK: - Permission Handling
@@ -614,6 +634,28 @@ public actor Orchestrator {
     case .read(let path):
       memory.touch(path)
       return try files.read(path: path, maxTokens: Config.fileReadMaxTokens)
+
+    case .create(let path, let content):
+      // Fail if file already exists — use edit for existing files
+      if files.exists(path) {
+        return "ERROR: File already exists: \(path). Use edit to modify existing files."
+      }
+      let createDecision = await askPermission(tool: "create", target: path, detail: "\(content.count) chars")
+      guard createDecision != .deny else { return "DENIED: create \(path)" }
+
+      // JSC validation for JavaScript files
+      if let feedback = jsValidator.feedbackForLLM(code: content, filePath: path) {
+        debug("JSC validation failed for \(path): \(feedback)")
+        return "VALIDATION FAILED: \(feedback)"
+      }
+
+      memory.touch(path)
+      metrics.filesModified += 1
+      try files.write(path: path, content: content)
+
+      let createDiff = diffPreview.diffWrite(filePath: path, existingContent: nil, newContent: content)
+      lastDiffs.append(createDiff)
+      return "Created \(path) (\(content.count) chars)"
 
     case .write(let path, let content):
       // Permission check via callback (CLI handles terminal I/O)
@@ -688,7 +730,7 @@ public actor Orchestrator {
 
   private func compressObservation(tool: String, output: String, step: String) -> StepObservation {
     let lines = output.split(separator: "\n", omittingEmptySubsequences: true)
-    let outcome = (output.contains("ERROR") || output.contains("DENIED") || output.contains("failed")) ? "error" : "ok"
+    let outcome = (output.contains("ERROR") || output.contains("DENIED") || output.contains("FAILED")) ? "error" : "ok"
     let keyFact = lines.first.map(String.init) ?? "no output"
     return StepObservation(tool: tool, outcome: outcome, keyFact: String(keyFact.prefix(120)))
   }

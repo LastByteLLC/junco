@@ -75,6 +75,52 @@ struct WorkingMemoryTests {
     #expect(memory.currentStepIndex == 1)
   }
 
+  @Test("didSucceed returns false when no observations")
+  func didSucceedNoObs() {
+    let memory = WorkingMemory(query: "test")
+    #expect(!memory.didSucceed)
+  }
+
+  @Test("didSucceed returns false when all observations are errors")
+  func didSucceedAllErrors() {
+    var memory = WorkingMemory(query: "test")
+    memory.addObservation(StepObservation(tool: "read", outcome: "error", keyFact: "file not found"))
+    memory.addError("Step 1: file not found")
+    #expect(!memory.didSucceed)
+  }
+
+  @Test("didSucceed returns true when last observation is ok and no errors")
+  func didSucceedHappy() {
+    var memory = WorkingMemory(query: "test")
+    memory.addObservation(StepObservation(tool: "write", outcome: "ok", keyFact: "written file"))
+    #expect(memory.didSucceed)
+  }
+
+  @Test("didSucceed returns true when errors exist but last observation is ok")
+  func didSucceedRecovered() {
+    var memory = WorkingMemory(query: "test")
+    memory.addObservation(StepObservation(tool: "read", outcome: "error", keyFact: "not found"))
+    memory.addError("Step 1 failed")
+    memory.addObservation(StepObservation(tool: "write", outcome: "ok", keyFact: "created file"))
+    #expect(memory.didSucceed)
+  }
+
+  @Test("didSucceed returns false when last observation is error despite earlier success")
+  func didSucceedEndedBadly() {
+    var memory = WorkingMemory(query: "test")
+    memory.addObservation(StepObservation(tool: "write", outcome: "ok", keyFact: "written"))
+    memory.addObservation(StepObservation(tool: "bash", outcome: "error", keyFact: "build failed"))
+    memory.addError("Build failed")
+    #expect(!memory.didSucceed)
+  }
+
+  @Test("compact description includes project root")
+  func compactIncludesProjectRoot() {
+    let memory = WorkingMemory(query: "test", workingDirectory: "/Users/dev/Projects/MyApp")
+    let desc = memory.compactDescription()
+    #expect(desc.contains("Projects/MyApp"))
+  }
+
   @Test("compact description fits within budget")
   func compactFitsBudget() {
     var memory = WorkingMemory(query: "refactor the entire authentication module to use async/await")
