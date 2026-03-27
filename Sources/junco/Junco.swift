@@ -51,7 +51,9 @@ struct Junco: AsyncParsableCommand {
     if verbose { await orchestrator.setVerbose(true) }
 
     let session = SessionManager(workingDirectory: cwd)
+    let forker = ConversationForker(workingDirectory: cwd)
     let history = CommandHistory()
+    let fileTree = FileTreeRenderer(workingDirectory: cwd)
     let persistence = SessionPersistence(workingDirectory: cwd)
     let notifications = NotificationService(workingDirectory: cwd)
     let markdown = MarkdownRenderer()
@@ -104,6 +106,12 @@ struct Junco: AsyncParsableCommand {
       workingDirectory: cwd, domain: domain.kind.rawValue
     )
 
+    // Background task runner for idle-time work
+    let bgContext = BackgroundContext(
+      workingDirectory: cwd, adapter: adapter, domain: domain
+    )
+    let bgRunner = BackgroundTaskRunner(context: bgContext)
+
     // Start background services and install signal handlers
     installSignalHandlers()
     Task {
@@ -152,7 +160,8 @@ struct Junco: AsyncParsableCommand {
         await handleDirective(
           trimmed, orchestrator: orchestrator, session: session,
           sessionStart: sessionStart, persistence: persistence,
-          persistedSession: &persistedSession
+          persistedSession: &persistedSession,
+          forker: forker, fileTree: fileTree
         )
         continue
       }
@@ -165,6 +174,8 @@ struct Junco: AsyncParsableCommand {
 
       await session.saveCheckpoint()
 
+      await bgRunner.markActive()
+
       try await runQuery(
         query, orchestrator: orchestrator, session: session,
         persistence: persistence, notifications: notifications,
@@ -173,6 +184,9 @@ struct Junco: AsyncParsableCommand {
         referencedFiles: parsed.referencedFiles, urlContext: urlContext,
         persistedSession: &persistedSession, phrases: phrases
       )
+
+      // Check for idle background tasks after each query
+      await bgRunner.checkAndRun()
     }
   }
 
@@ -283,7 +297,9 @@ struct Junco: AsyncParsableCommand {
     session: SessionManager,
     sessionStart: Date,
     persistence: SessionPersistence,
-    persistedSession: inout PersistedSession
+    persistedSession: inout PersistedSession,
+    forker: ConversationForker,
+    fileTree: FileTreeRenderer
   ) async {
     let parts = cmd.split(separator: " ", maxSplits: 1)
     let directive = String(parts[0]).lowercased()
@@ -406,6 +422,38 @@ struct Junco: AsyncParsableCommand {
         Terminal.line("  [\(icon)] \(turn.query)")
       }
 
+    case "/files":
+      let highlighted = Set(persistedSession.turns.last?.filesModified ?? [])
+      Terminal.line(fileTree.render(highlightFiles: highlighted))
+
+    case "/fork":
+      let turnIdx = persistedSession.turns.count
+      let point = await forker.fork(query: arg ?? "manual fork", turnIndex: turnIdx)
+      let depth = await forker.forkDepth
+      Terminal.line(Style.cyan("Forked") + " at turn \(turnIdx) " + Style.dim("(id: \(point.id), depth: \(depth))"))
+      Terminal.line(Style.dim("  Changes saved. Try a different approach, then /unfork to go back."))
+
+    case "/unfork":
+      if let point = await forker.unfork() {
+        let depth = await forker.forkDepth
+        Terminal.line(Style.green("Restored") + " to fork \(point.id) (turn \(point.turnIndex))")
+        if depth > 0 {
+          Terminal.line(Style.dim("  \(depth) fork(s) remaining in stack"))
+        }
+      } else {
+        Terminal.line(Style.dim("No forks to restore."))
+      }
+
+    case "/forks":
+      let history = await forker.forkHistory
+      if history.isEmpty {
+        Terminal.line(Style.dim("No active forks."))
+      } else {
+        for (i, point) in history.enumerated() {
+          Terminal.line("  \(i + 1). \(Style.cyan(point.id)) turn \(point.turnIndex): \(point.query)")
+        }
+      }
+
     default:
       Terminal.line(Style.yellow("Unknown: \(directive)"))
       Terminal.line(Style.dim("Type /help for commands."))
@@ -419,6 +467,10 @@ struct Junco: AsyncParsableCommand {
     let commands: [(String, String)] = [
       ("/clear", "Purge session and start fresh"),
       ("/undo", "Revert last agent changes (git)"),
+      ("/fork [reason]", "Snapshot state, try different approach"),
+      ("/unfork", "Restore to last fork point"),
+      ("/forks", "Show fork stack"),
+      ("/files", "Show project file tree"),
       ("/metrics", "Token usage, energy, call counts"),
       ("/reflections [q]", "Show stored reflections"),
       ("/domain", "Detected project domain"),

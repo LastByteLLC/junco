@@ -47,12 +47,7 @@ public actor BackgroundTaskRunner {
 
   public init(context: BackgroundContext) {
     self.context = context
-    registerDefaultTasks()
-  }
-
-  /// Register the default background tasks.
-  private func registerDefaultTasks() {
-    tasks = [
+    self.tasks = [
       PhraseGenerationTask(),
       ReflectionCompactionTask(),
       IndexFreshnessTask(),
