@@ -56,7 +56,7 @@ struct Junco: AsyncParsableCommand {
     let fileTree = FileTreeRenderer(workingDirectory: cwd)
     let persistence = SessionPersistence(workingDirectory: cwd)
     let notifications = NotificationService(workingDirectory: cwd)
-    let translator = TranslationService()
+    let translator = TranslationService(adapter: adapter)
     let markdown = MarkdownRenderer()
     let diffRenderer = DiffRenderer()
     let phrases = ThinkingPhrases(projectDirectory: cwd)
@@ -174,9 +174,40 @@ struct Junco: AsyncParsableCommand {
       let urlContext = await parser.fetchURLs(parsed.urls)
 
       // Translation: detect language, translate to English if needed
-      let (translatedQuery, inputLang) = await translator.processInput(parsed.query)
+      let (translatedQuery, inputLang, translationMsg) = await translator.processInput(parsed.query)
       if let lang = inputLang {
-        Toast.show("Detected \(lang) — translating to English for processing", level: .info)
+        let langName = Locale.current.localizedString(forLanguageCode: lang) ?? lang
+        Toast.show("Detected \(langName) — translating to English for processing", level: .info)
+      }
+      if let msg = translationMsg {
+        let parts = msg.split(separator: ":", maxSplits: 1)
+        let kind = String(parts.first ?? "")
+        let langName = parts.count > 1 ? String(parts[1]) : "this language"
+
+        Terminal.line("")
+        if kind == "afm-fallback" {
+          Terminal.line(Style.yellow("  Using on-device AI for translation (good, not perfect)."))
+          Terminal.line(Style.dim("  For higher quality, download \(langName) translation models."))
+        } else {
+          Terminal.line(Style.yellow("  \(langName) translation models are not installed."))
+          Terminal.line(Style.dim("  junco will try its best, but dedicated models produce better results."))
+        }
+
+        if Terminal.isInteractive {
+          Terminal.line("")
+          print("  Open Language & Region settings to download? [\(Style.cyan("y"))/\(Style.cyan("n"))]: ", terminator: "")
+          fflush(stdout)
+          if let choice = Swift.readLine()?.lowercased().first, choice == "y" {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            p.arguments = [TranslationService.settingsURL]
+            try? p.run(); p.waitUntilExit()
+            Terminal.line(Style.dim("  Settings opened. Select your language, enable 'On Device', then try again."))
+            Terminal.line("")
+            continue
+          }
+        }
+        Terminal.line("")
       }
 
       let query = await session.processInput(translatedQuery)
@@ -317,7 +348,7 @@ struct Junco: AsyncParsableCommand {
 
     } catch {
       Terminal.clearLine()
-      Toast.show("\(error)", level: .error)
+      Toast.showError(error)
 
       await session.recordTurn(TurnSummary(
         query: query, taskType: "error",
@@ -518,19 +549,25 @@ struct Junco: AsyncParsableCommand {
     case "/lang":
       if let code = arg, !code.isEmpty {
         await translator.setLanguage(code)
-        let isActive = await translator.isTranslating
-        if isActive {
-          Terminal.line(Style.green("Session language set to \(code).") + " Input/output will be translated.")
-        } else {
-          Terminal.line(Style.yellow("Language \(code) set but translation models not installed."))
-          Terminal.line(Style.dim("Download in System Settings > General > Language & Region > Translation Languages"))
+        let msg = await translator.availabilityMessage(for: code)
+        Terminal.line(msg)
+        if msg.contains("not downloaded") {
+          print(Style.dim("  Open Settings to download? [y/n] "), terminator: "")
+          fflush(stdout)
+          if Swift.readLine()?.lowercased().first == "y" {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            p.arguments = [TranslationService.settingsURL]
+            try? p.run(); p.waitUntilExit()
+          }
         }
       } else {
         let current = await translator.currentLanguage
         if let lang = current {
-          Terminal.line("Session language: \(Style.cyan(lang))")
-          let active = await translator.isTranslating
-          Terminal.line("Translation active: \(active ? Style.green("yes") : Style.yellow("no (models not installed)"))")
+          let langName = Locale.current.localizedString(forLanguageCode: lang) ?? lang
+          Terminal.line("Session language: \(Style.cyan(langName)) (\(lang))")
+          let msg = await translator.availabilityMessage(for: lang)
+          Terminal.line(Style.dim("  \(msg)"))
         } else {
           Terminal.line("Session language: \(Style.dim("English (default)"))")
         }

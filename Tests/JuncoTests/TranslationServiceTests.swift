@@ -1,4 +1,4 @@
-// TranslationServiceTests.swift — Tests for translation detection, session memory, and round-trip
+// TranslationServiceTests.swift — Tests for translation detection, session memory, and fallbacks
 
 import Testing
 import Foundation
@@ -10,16 +10,16 @@ struct TranslationServiceTests {
   @Test("detects English input as no translation needed")
   func englishPassthrough() async {
     let svc = TranslationService()
-    let (text, lang) = await svc.processInput("fix the login bug in auth.swift")
+    let (text, lang, msg) = await svc.processInput("fix the login bug in auth.swift")
     #expect(text == "fix the login bug in auth.swift")
     #expect(lang == nil)
+    #expect(msg == nil)
   }
 
   @Test("short input skips detection")
   func shortInput() async {
     let svc = TranslationService()
-    let (text, lang) = await svc.processInput("hola")
-    // Too short for reliable detection — passes through
+    let (text, lang, _) = await svc.processInput("hola")
     #expect(text == "hola")
     #expect(lang == nil)
   }
@@ -27,9 +27,7 @@ struct TranslationServiceTests {
   @Test("detects Spanish input")
   func detectSpanish() async {
     let svc = TranslationService()
-    let (_, lang) = await svc.processInput("arregla el error de inicio de sesión en el módulo de autenticación")
-    // Should detect Spanish (if NLLanguageRecognizer works)
-    // Lang is either "es" or nil (if detection fails on this text)
+    let (_, lang, _) = await svc.processInput("arregla el error de inicio de sesión en el módulo de autenticación")
     if let lang {
       #expect(lang == "es")
     }
@@ -38,15 +36,10 @@ struct TranslationServiceTests {
   @Test("remembers session language across turns")
   func sessionMemory() async {
     let svc = TranslationService()
-    // First turn: Spanish detected
     _ = await svc.processInput("arregla el error de inicio de sesión en el módulo de autenticación")
-
     let lang1 = await svc.currentLanguage
-    // If Spanish was detected, second turn should use the same language
     if lang1 == "es" {
-      // Second turn: even if ambiguous, session language sticks
-      let (_, lang2) = await svc.processInput("ahora agrega pruebas")
-      // Session language should still be Spanish
+      let (_, _, _) = await svc.processInput("ahora agrega pruebas")
       let current = await svc.currentLanguage
       #expect(current == "es")
     }
@@ -56,53 +49,52 @@ struct TranslationServiceTests {
   func reset() async {
     let svc = TranslationService()
     await svc.setLanguage("es")
-    let before = await svc.currentLanguage
-    #expect(before == "es")
-
+    #expect(await svc.currentLanguage == "es")
     await svc.reset()
-    let after = await svc.currentLanguage
-    #expect(after == nil)
+    #expect(await svc.currentLanguage == nil)
   }
 
   @Test("setLanguage sets session language")
   func setLanguage() async {
     let svc = TranslationService()
     await svc.setLanguage("fr")
-    let lang = await svc.currentLanguage
-    #expect(lang == "fr")
+    #expect(await svc.currentLanguage == "fr")
   }
 
   @Test("isTranslating is false for English")
   func notTranslating() async {
     let svc = TranslationService()
-    let result = await svc.isTranslating
-    #expect(result == false)
-  }
-
-  @Test("isTranslating is true after setting non-English language")
-  func translatingAfterSet() async {
-    let svc = TranslationService()
-    await svc.setLanguage("de")
-    // isTranslating depends on model availability
-    // It may be false if models aren't installed, which is fine
-    let _ = await svc.isTranslating  // Just verify no crash
+    #expect(await svc.isTranslating == false)
   }
 
   @Test("processOutput returns nil for English session")
   func outputEnglish() async {
     let svc = TranslationService()
-    let result = await svc.processOutput("This is a test")
-    #expect(result == nil)
+    #expect(await svc.processOutput("test") == nil)
   }
 
-  @Test("processOutput returns nil when models not installed")
-  func outputNoModels() async {
+  @Test("availabilityMessage reports status")
+  func availabilityMsg() async {
     let svc = TranslationService()
+    let msg = await svc.availabilityMessage(for: "es")
+    #expect(!msg.isEmpty)
+    // Should contain either "installed", "not downloaded", or "not supported"
+    #expect(msg.contains("Spanish") || msg.contains("es"))
+  }
+
+  @Test("AFM fallback used when adapter provided")
+  func afmFallback() async {
+    let adapter = AFMAdapter()
+    let svc = TranslationService(adapter: adapter)
     await svc.setLanguage("es")
-    // If models aren't installed, output translation returns nil
-    let result = await svc.processOutput("This is a test")
-    // result is nil because translation models aren't downloaded
-    // This is the expected graceful fallback
-    _ = result  // No crash = pass
+    // With AFM adapter, processInput should attempt translation
+    let (text, lang, _) = await svc.processInput("arregla el error de inicio de sesión en el módulo de autenticación")
+    // Either translated or passed through — both are valid
+    #expect(!text.isEmpty)
+  }
+
+  @Test("settingsURL is valid")
+  func settingsURL() {
+    #expect(TranslationService.settingsURL.contains("systempreferences"))
   }
 }

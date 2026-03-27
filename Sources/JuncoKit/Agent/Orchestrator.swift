@@ -348,6 +348,7 @@ public actor Orchestrator {
   // MARK: - Pipeline Stages
 
   private static let intentKeywords: [String: String] = [
+    // English
     "explain": "explain", "describe": "explain", "what": "explain",
     "how": "explain", "why": "explain", "summarize": "explain",
     "fix": "fix", "debug": "fix", "repair": "fix",
@@ -356,6 +357,25 @@ public actor Orchestrator {
     "test": "test",
     "find": "explore", "search": "explore", "grep": "explore",
     "where": "explore", "list": "explore", "show": "explore",
+    // Spanish
+    "explica": "explain", "explicar": "explain", "qué": "explain",
+    "¿qué": "explain", "cómo": "explain", "¿cómo": "explain",
+    "arregla": "fix", "corrige": "fix", "repara": "fix",
+    "añade": "add", "agrega": "add", "crea": "add",
+    "busca": "explore", "encuentra": "explore",
+    // French
+    "décris": "explain", "qu'est-ce": "explain",
+    "répare": "fix",
+    "ajoute": "add", "crée": "add",
+    "cherche": "explore", "trouve": "explore",
+    // German
+    "erkläre": "explain", "was": "explain", "wie": "explain",
+    "behebe": "fix", "repariere": "fix",
+    "füge": "add", "erstelle": "add",
+    // Portuguese / French shared
+    "explique": "explain", "corrija": "fix", "adicione": "add",
+    // Japanese (romanized)
+    "setsumei": "explain", "naoshite": "fix",
   ]
 
   private func classify(
