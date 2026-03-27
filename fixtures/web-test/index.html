@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Junco E2E Test Page</title>
+  <style>
+    body { font-family: system-ui; max-width: 600px; margin: 40px auto; padding: 0 20px; }
+    .result { padding: 8px; margin: 8px 0; border-radius: 4px; }
+    .pass { background: #d4edda; color: #155724; }
+    .fail { background: #f8d7da; color: #721c24; }
+    #output { white-space: pre-wrap; font-family: monospace; }
+  </style>
+</head>
+<body>
+  <h1 id="title">Calculator</h1>
+  <p id="description">A simple calculator for testing.</p>
+
+  <form id="calc-form">
+    <input id="num-a" type="number" value="10" />
+    <select id="operator">
+      <option value="+">+</option>
+      <option value="-">-</option>
+      <option value="*">×</option>
+      <option value="/">÷</option>
+    </select>
+    <input id="num-b" type="number" value="5" />
+    <button type="submit" id="calculate">Calculate</button>
+  </form>
+
+  <div id="result" class="result" style="display:none"></div>
+  <div id="history"></div>
+  <pre id="output"></pre>
+
+  <script>
+    function calculate(a, op, b) {
+      switch(op) {
+        case '+': return a + b;
+        case '-': return a - b;
+        case '*': return a * b;
+        case '/': return b === 0 ? 'Error: division by zero' : a / b;
+        default: return 'Unknown operator';
+      }
+    }
+
+    document.getElementById('calc-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const a = parseFloat(document.getElementById('num-a').value);
+      const b = parseFloat(document.getElementById('num-b').value);
+      const op = document.getElementById('operator').value;
+      const result = calculate(a, op, b);
+
+      const resultDiv = document.getElementById('result');
+      resultDiv.textContent = `${a} ${op} ${b} = ${result}`;
+      resultDiv.style.display = 'block';
+      resultDiv.className = typeof result === 'number' ? 'result pass' : 'result fail';
+
+      // Add to history
+      const history = document.getElementById('history');
+      const entry = document.createElement('div');
+      entry.textContent = `${a} ${op} ${b} = ${result}`;
+      entry.className = 'result ' + (typeof result === 'number' ? 'pass' : 'fail');
+      history.appendChild(entry);
+    });
+  </script>
+</body>
+</html>
