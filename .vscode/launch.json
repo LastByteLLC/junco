@@ -19,6 +19,26 @@
             "target": "junco",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release junco"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:swift-code}",
+            "name": "Debug junco-eval",
+            "target": "junco-eval",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug junco-eval"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:swift-code}",
+            "name": "Release junco-eval",
+            "target": "junco-eval",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release junco-eval"
         }
     ]
 }

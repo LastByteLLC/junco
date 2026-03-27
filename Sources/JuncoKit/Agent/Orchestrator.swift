@@ -128,23 +128,45 @@ public actor Orchestrator {
       query: query, intent: intent, strategy: strategy,
       memory: &memory, explicitContext: explicitContext
     )
-    memory.plan = plan
-    debug("PLAN → \(plan.steps.count) steps:")
-    for (i, step) in plan.steps.enumerated() {
+    // Cap plan at max steps to prevent runaway plans
+    let maxSteps = 8
+    let cappedSteps = Array(plan.steps.prefix(maxSteps))
+    if plan.steps.count > maxSteps {
+      debug("PLAN capped from \(plan.steps.count) to \(maxSteps) steps")
+    }
+    memory.plan = AgentPlan(steps: cappedSteps)
+    debug("PLAN → \(cappedSteps.count) steps:")
+    for (i, step) in cappedSteps.enumerated() {
       debug("  [\(i + 1)] \(step.tool): \(step.instruction) → \(step.target)")
     }
 
-    for (index, step) in plan.steps.enumerated() {
+    // Execute with loop detection (Ralph Wiggum guard)
+    var lastActions: [(tool: String, target: String)] = []
+
+    for (index, step) in cappedSteps.enumerated() {
       memory.currentStepIndex = index
+
+      // Loop detection: if last 2 actions used the same tool on the same target, break
+      if lastActions.count >= 2 {
+        let prev = lastActions.suffix(2)
+        if prev.allSatisfy({ $0.tool == step.tool && $0.target == step.target }) {
+          debug("LOOP detected at step \(index + 1): \(step.tool) on \(step.target) — skipping remaining steps")
+          memory.addError("Loop detected: repeated \(step.tool) on \(step.target)")
+          break
+        }
+      }
+
       do {
         let observation = try await executeStep(step: step, memory: &memory)
         memory.addObservation(observation)
+        lastActions.append((tool: observation.tool, target: step.target))
         debug("EXEC[\(index + 1)] → [\(observation.outcome)] \(observation.tool): \(observation.keyFact)")
       } catch {
         memory.addError("Step \(index + 1): \(error)")
         memory.addObservation(StepObservation(
           tool: step.tool, outcome: "error", keyFact: "\(error)"
         ))
+        lastActions.append((tool: step.tool, target: step.target))
         debug("EXEC[\(index + 1)] → [ERROR] \(error)")
       }
     }
@@ -206,13 +228,35 @@ public actor Orchestrator {
 
   // MARK: - Pipeline Stages
 
+  /// Strong intent keywords that override ML classification.
+  /// The first word of the query is checked against these.
+  private static let intentKeywords: [String: String] = [
+    "explain": "explain", "describe": "explain", "what": "explain",
+    "how": "explain", "why": "explain", "summarize": "explain",
+    "fix": "fix", "debug": "fix", "repair": "fix",
+    "add": "add", "create": "add", "implement": "add", "write": "add",
+    "refactor": "refactor", "clean": "refactor", "simplify": "refactor",
+    "test": "test",
+    "find": "explore", "search": "explore", "grep": "explore",
+    "where": "explore", "list": "explore", "show": "explore",
+  ]
+
   private func classify(
     query: String, memory: inout WorkingMemory, explicitTargets: [String] = []
   ) async throws -> AgentIntent {
+    // Keyword override: if the query starts with a strong intent verb, use it
+    let firstWord = query.lowercased().split(separator: " ").first.map(String.init) ?? ""
+    let keywordOverride = Self.intentKeywords[firstWord]
+
     // Try ML classifier first (10ms vs 2s LLM call)
     if let mlResult = intentClassifier.classifyWithConfidence(query), mlResult.confidence > Config.mlClassifierConfidence {
+      let finalLabel = keywordOverride ?? mlResult.label
+      if keywordOverride != nil && keywordOverride != mlResult.label {
+        debug("ML classifier: \(mlResult.label) → overridden to \(finalLabel) (keyword: \(firstWord))")
+      } else {
+        debug("ML classifier: \(finalLabel) (confidence: \(String(format: "%.2f", mlResult.confidence)))")
+      }
       metrics.mlClassifications += 1
-      debug("ML classifier: \(mlResult.label) (confidence: \(String(format: "%.2f", mlResult.confidence)))")
 
       // Use explicit @-targets if provided, otherwise scan query for file names
       let targets: [String]
@@ -228,7 +272,7 @@ public actor Orchestrator {
 
       return AgentIntent(
         domain: domain.kind.rawValue,
-        taskType: mlResult.label,
+        taskType: finalLabel,
         complexity: targets.count > 2 ? "moderate" : "simple",
         targets: targets
       )

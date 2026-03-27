@@ -7,6 +7,7 @@ let package = Package(
   platforms: [.macOS("26.0"), .iOS("26.0")],
   products: [
     .executable(name: "junco", targets: ["junco"]),
+    .executable(name: "junco-eval", targets: ["JuncoEval"]),
     .library(name: "JuncoKit", targets: ["JuncoKit"]),
   ],
   dependencies: [
@@ -25,6 +26,11 @@ let package = Package(
         .product(name: "ArgumentParser", package: "swift-argument-parser"),
       ],
       path: "Sources/junco"
+    ),
+    .executableTarget(
+      name: "JuncoEval",
+      dependencies: ["JuncoKit"],
+      path: "Sources/JuncoEval"
     ),
     .testTarget(
       name: "JuncoTests",

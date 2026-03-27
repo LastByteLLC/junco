@@ -1,0 +1,60 @@
+[
+  {
+    "name": "explain-readme",
+    "description": "Explain a file with @-targeting",
+    "directory": ".",
+    "query": "explain what junco is according to @README.md",
+    "expect": {
+      "output_contains": ["junco"],
+      "output_not_contains": ["pathOutsideProject"],
+      "max_llm_calls": 3,
+      "max_tokens": 5000,
+      "succeeded": true
+    }
+  },
+  {
+    "name": "conversational-who",
+    "description": "Conversational query should not invoke pipeline",
+    "directory": ".",
+    "query": "who are you?",
+    "expect": {
+      "output_contains": ["junco"],
+      "max_llm_calls": 0,
+      "max_tokens": 0,
+      "succeeded": true
+    }
+  },
+  {
+    "name": "conversational-hello",
+    "description": "Greeting should respond directly",
+    "directory": ".",
+    "query": "hello",
+    "expect": {
+      "output_contains": ["junco"],
+      "max_llm_calls": 0,
+      "succeeded": true
+    }
+  },
+  {
+    "name": "explain-calc",
+    "description": "Explain calculator code with @-targeting",
+    "directory": "fixtures/swift-calc",
+    "query": "explain the calculate function in @Sources/main.swift",
+    "expect": {
+      "output_contains": ["calculate"],
+      "output_not_contains": ["pathOutsideProject"],
+      "max_llm_calls": 3,
+      "succeeded": true
+    }
+  },
+  {
+    "name": "search-files",
+    "description": "Explore task should search without modifying",
+    "directory": ".",
+    "query": "find all Swift files that define a struct",
+    "expect": {
+      "output_not_contains": ["pathOutsideProject"],
+      "succeeded": true
+    }
+  }
+]

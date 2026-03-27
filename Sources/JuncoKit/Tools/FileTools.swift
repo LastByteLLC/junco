@@ -144,8 +144,9 @@ public struct FileTools: Sendable {
         continue
       }
 
-      // Skip build directories
-      if rel.hasPrefix(".build") || rel.hasPrefix("node_modules") || rel.hasPrefix(".git/") {
+      // Skip ignored directories (.juncoignore + builtins)
+      let ignoreFilter = IgnoreFilter(workingDirectory: workingDirectory)
+      if ignoreFilter.shouldIgnore(rel) {
         enumerator.skipDescendants()
         continue
       }

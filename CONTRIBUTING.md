@@ -15,7 +15,7 @@ Requires macOS 26+ with Apple Intelligence enabled.
 
 See [README.md](README.md) for the architecture overview. Key principle: changes should target one layer at a time. The layers are independent — modifying RAG shouldn't require changes to the TUI.
 
-## Code Style
+# Code Style
 
 - 2-space indentation
 - 120 character line limit
