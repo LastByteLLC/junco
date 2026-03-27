@@ -34,9 +34,15 @@ struct Junco: AsyncParsableCommand {
     let domain = await orchestrator.domain
 
     if pipe {
-      guard let query = readLine(), !query.isEmpty else { return }
-      let processed = await session.processInput(query)
-      try await runQuery(processed, orchestrator: orchestrator, session: session)
+      guard let raw = readLine(), !raw.isEmpty else { return }
+      let parser = InputParser(workingDirectory: cwd)
+      let parsed = parser.parse(raw)
+      let urlCtx = await parser.fetchURLs(parsed.urls)
+      let processed = await session.processInput(parsed.query)
+      try await runQuery(
+        processed, orchestrator: orchestrator, session: session,
+        referencedFiles: parsed.referencedFiles, urlContext: urlCtx
+      )
       return
     }
 
@@ -93,13 +99,23 @@ struct Junco: AsyncParsableCommand {
         continue
       }
 
-      // Process input (clipboard detection, paste substitution)
-      let processed = await session.processInput(trimmed)
+      // Parse input: extract @files, URLs, detect paste
+      let parser = InputParser(workingDirectory: cwd)
+      let parsed = parser.parse(trimmed)
+
+      // Fetch any referenced URLs
+      let urlContext = await parser.fetchURLs(parsed.urls)
+
+      // Handle paste detection
+      let query = await session.processInput(parsed.query)
 
       // Save checkpoint for undo (if git repo)
       await session.saveCheckpoint()
 
-      try await runQuery(processed, orchestrator: orchestrator, session: session)
+      try await runQuery(
+        query, orchestrator: orchestrator, session: session,
+        referencedFiles: parsed.referencedFiles, urlContext: urlContext
+      )
     }
   }
 
@@ -108,12 +124,18 @@ struct Junco: AsyncParsableCommand {
   private func runQuery(
     _ query: String,
     orchestrator: Orchestrator,
-    session: SessionManager
+    session: SessionManager,
+    referencedFiles: [String] = [],
+    urlContext: String? = nil
   ) async throws {
     Terminal.status("thinking...")
 
     do {
-      let result = try await orchestrator.run(query: query)
+      let result = try await orchestrator.run(
+        query: query,
+        referencedFiles: referencedFiles,
+        urlContext: urlContext
+      )
       Terminal.clearLine()
       printResult(result)
 

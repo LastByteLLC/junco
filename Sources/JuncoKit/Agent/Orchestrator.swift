@@ -43,7 +43,16 @@ public actor Orchestrator {
 
   // MARK: - Public API
 
-  public func run(query: String) async throws -> RunResult {
+  /// Run the agent pipeline on a query.
+  /// - Parameters:
+  ///   - query: The user's query (with @refs already resolved to paths).
+  ///   - referencedFiles: Explicitly @-referenced file paths (pre-parsed by InputParser).
+  ///   - urlContext: Pre-fetched URL content formatted for prompt injection.
+  public func run(
+    query: String,
+    referencedFiles: [String] = [],
+    urlContext: String? = nil
+  ) async throws -> RunResult {
     var memory = WorkingMemory(query: query)
 
     // Check for conversational/meta queries first
@@ -57,20 +66,68 @@ public actor Orchestrator {
       return RunResult(memory: memory, reflection: reflection)
     }
 
-    // Build project index using domain-specific extensions
+    // Pre-read @-referenced files — these are injected directly, not via LLM
+    var explicitContext = ""
+    for path in referencedFiles {
+      if let content = try? files.read(path: path, maxTokens: Config.fileReadMaxTokens) {
+        explicitContext += "--- @\(path) ---\n\(content)\n\n"
+        memory.touch(path)
+        debug("PRE-READ @\(path): \(TokenBudget.estimate(content)) tokens")
+      }
+    }
+
+    // Append URL context if present
+    if let urlCtx = urlContext {
+      explicitContext += urlCtx + "\n"
+      debug("URL context: \(TokenBudget.estimate(urlCtx)) tokens")
+    }
+
+    // Build project index
     let indexer = FileIndexer(workingDirectory: workingDirectory)
     projectIndex = indexer.indexProject(extensions: domain.fileExtensions)
     debug("Indexed \(projectIndex.count) symbols from \(domain.displayName) project")
 
-    let intent = try await classify(query: query, memory: &memory)
+    // Classify — use @-referenced files as explicit targets
+    let intent = try await classify(query: query, memory: &memory, explicitTargets: referencedFiles)
     memory.intent = intent
     debug("CLASSIFY → domain:\(intent.domain) type:\(intent.taskType) complexity:\(intent.complexity) targets:\(intent.targets)")
+
+    // For explain/explore with explicit files, skip strategy/plan — just return the content
+    if (intent.taskType == "explain" || intent.taskType == "explore") && !explicitContext.isEmpty {
+      debug("SHORTCUT: explain/explore with @-referenced files, skipping plan")
+
+      // One LLM call: summarize/explain the pre-read content
+      let explainPrompt = "Task: \(query)\n\nContent:\n\(TokenBudget.truncate(explicitContext, toTokens: 2500))"
+      memory.trackCall(estimatedTokens: TokenBudget.execute.total)
+      let response = try await adapter.generate(
+        prompt: explainPrompt,
+        system: "You are a coding assistant. Explain the provided code or documentation clearly and concisely. \(domain.promptHint)"
+      )
+
+      let reflection = AgentReflection(
+        taskSummary: "Explained \(referencedFiles.joined(separator: ", "))",
+        insight: response,
+        improvement: "",
+        succeeded: true
+      )
+      debug("EXPLAIN → \(TokenBudget.estimate(response)) tokens")
+
+      try? reflectionStore.save(query: query, reflection: reflection)
+      metrics.tasksCompleted += 1
+      metrics.totalTokensUsed += memory.totalTokensUsed
+      metrics.totalLLMCalls += memory.llmCalls
+
+      return RunResult(memory: memory, reflection: reflection)
+    }
 
     let strategy = try await discoverStrategy(query: query, intent: intent, memory: &memory)
     memory.strategy = strategy
     debug("STRATEGY → approach:\(strategy.approach) start:\(strategy.startingPoints) risk:\(strategy.risk)")
 
-    let plan = try await plan(query: query, intent: intent, strategy: strategy, memory: &memory)
+    let plan = try await plan(
+      query: query, intent: intent, strategy: strategy,
+      memory: &memory, explicitContext: explicitContext
+    )
     memory.plan = plan
     debug("PLAN → \(plan.steps.count) steps:")
     for (i, step) in plan.steps.enumerated() {
@@ -149,21 +206,31 @@ public actor Orchestrator {
 
   // MARK: - Pipeline Stages
 
-  private func classify(query: String, memory: inout WorkingMemory) async throws -> AgentIntent {
+  private func classify(
+    query: String, memory: inout WorkingMemory, explicitTargets: [String] = []
+  ) async throws -> AgentIntent {
     // Try ML classifier first (10ms vs 2s LLM call)
     if let mlResult = intentClassifier.classifyWithConfidence(query), mlResult.confidence > Config.mlClassifierConfidence {
       metrics.mlClassifications += 1
       debug("ML classifier: \(mlResult.label) (confidence: \(String(format: "%.2f", mlResult.confidence)))")
 
-      let fileList = files.listFiles()
-      let targets = fileList.filter { path in
-        query.lowercased().contains((path as NSString).lastPathComponent.lowercased())
+      // Use explicit @-targets if provided, otherwise scan query for file names
+      let targets: [String]
+      if !explicitTargets.isEmpty {
+        targets = explicitTargets
+      } else {
+        let fileList = files.listFiles()
+        let matched = fileList.filter { path in
+          query.lowercased().contains((path as NSString).lastPathComponent.lowercased())
+        }
+        targets = matched.isEmpty ? Array(fileList.prefix(3)) : matched
       }
+
       return AgentIntent(
         domain: domain.kind.rawValue,
         taskType: mlResult.label,
         complexity: targets.count > 2 ? "moderate" : "simple",
-        targets: targets.isEmpty ? Array(fileList.prefix(3)) : targets
+        targets: targets
       )
     }
 
@@ -192,14 +259,20 @@ public actor Orchestrator {
 
   private func plan(
     query: String, intent: AgentIntent, strategy: AgentStrategy,
-    memory: inout WorkingMemory
+    memory: inout WorkingMemory, explicitContext: String = ""
   ) async throws -> AgentPlan {
-    let fileContext = contextPacker.pack(
-      query: query,
-      index: projectIndex,
-      budget: TokenBudget.plan.context,
-      preferredFiles: strategy.startingPoints
-    )
+    // Use explicit @-file content if available, otherwise RAG
+    let fileContext: String
+    if !explicitContext.isEmpty {
+      fileContext = TokenBudget.truncate(explicitContext, toTokens: TokenBudget.plan.context)
+    } else {
+      fileContext = contextPacker.pack(
+        query: query,
+        index: projectIndex,
+        budget: TokenBudget.plan.context,
+        preferredFiles: strategy.startingPoints
+      )
+    }
 
     let prompt = Prompts.planPrompt(
       query: query, intent: intent, strategy: strategy,
