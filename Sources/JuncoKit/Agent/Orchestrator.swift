@@ -13,6 +13,7 @@ public actor Orchestrator {
   private let files: FileTools
   private let jsValidator: JSCValidator
   private let swiftValidator: SwiftValidator
+  private let validatorRegistry: ValidatorRegistry
   private let contextPacker: ContextPacker
   private let reflectionStore: ReflectionStore
   private let skillLoader: SkillLoader
@@ -46,6 +47,7 @@ public actor Orchestrator {
     self.shell = SafeShell(workingDirectory: workingDirectory)
     self.jsValidator = JSCValidator()
     self.swiftValidator = SwiftValidator()
+    self.validatorRegistry = ValidatorRegistry.default()
     self.files = FileTools(workingDirectory: workingDirectory)
     self.contextPacker = ContextPacker(workingDirectory: workingDirectory)
     self.reflectionStore = ReflectionStore(projectDirectory: workingDirectory)
@@ -104,6 +106,19 @@ public actor Orchestrator {
       return RunResult(memory: memory, reflection: AgentReflection(
         taskSummary: "Conversational query", insight: directResponse,
         improvement: "", succeeded: true
+      ))
+    }
+
+    // Shell command detection: if input is valid bash syntax and the first
+    // word is a real executable (not a task keyword), run it directly.
+    if let shellResult = await detectAndRunShellCommand(query) {
+      memory.addObservation(StepObservation(
+        tool: "bash", outcome: shellResult.exitCode == 0 ? "ok" : "error",
+        keyFact: String(shellResult.formatted(maxTokens: 120).prefix(120))
+      ))
+      return RunResult(memory: memory, reflection: AgentReflection(
+        taskSummary: "Shell command", insight: shellResult.formatted(maxTokens: 800),
+        improvement: "", succeeded: shellResult.exitCode == 0
       ))
     }
 
@@ -196,8 +211,7 @@ public actor Orchestrator {
           // Validate with retry
           var retries = 0
           while retries < Config.maxValidationRetries {
-            let feedback = jsValidator.feedbackForLLM(code: content, filePath: path)
-              ?? swiftValidator.feedbackForLLM(code: content, filePath: path)
+            let feedback = validatorRegistry.validate(code: content, filePath: path)
             guard let error = feedback else { break }
             retries += 1
             debug("FAST PATH validation retry \(retries): \(error)")
@@ -211,8 +225,7 @@ public actor Orchestrator {
           }
 
           // Final validation
-          if let finalError = jsValidator.feedbackForLLM(code: content, filePath: path)
-              ?? swiftValidator.feedbackForLLM(code: content, filePath: path) {
+          if let finalError = validatorRegistry.validate(code: content, filePath: path) {
             memory.addObservation(StepObservation(tool: "create", outcome: "error", keyFact: finalError))
             memory.addError(finalError)
             continue
@@ -388,7 +401,14 @@ public actor Orchestrator {
     }
 
     // Build verification + LSP diagnostics after modifications
-    if filesWereModified {
+    // Only verify if modified files match the project's domain extensions
+    let domainExtensions = Set(domain.fileExtensions)
+    let modifiedDomainFiles = memory.touchedFiles.filter { path in
+      let ext = (path as NSString).pathExtension.lowercased()
+      return domainExtensions.contains(ext)
+    }
+
+    if filesWereModified && !modifiedDomainFiles.isEmpty {
       // Start LSP lazily on first edit (only for Swift projects)
       if domain.kind == .swift && !lspStarted {
         lspStarted = await lspClient.start()
@@ -458,6 +478,53 @@ public actor Orchestrator {
     }
 
     return nil
+  }
+
+  /// Detect if the user typed a bare shell command and run it directly.
+  /// Uses bash -n for syntax validation + checks if the first word is a
+  /// real executable AND not an intent keyword (fix, create, explain, etc.).
+  private func detectAndRunShellCommand(_ query: String) async -> ShellResult? {
+    let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+
+    // Extract first word
+    let firstWord = trimmed.split(separator: " ", maxSplits: 1).first
+      .map { String($0).lowercased() } ?? ""
+
+    // If first word is an intent keyword, it's a task description not a command
+    if Self.intentKeywords[firstWord] != nil { return nil }
+
+    // Validate syntax with bash -n (parse without execution)
+    let syntaxCheck = Process()
+    syntaxCheck.executableURL = URL(fileURLWithPath: "/bin/bash")
+    syntaxCheck.arguments = ["-n", "-c", trimmed]
+    syntaxCheck.standardOutput = FileHandle.nullDevice
+    syntaxCheck.standardError = FileHandle.nullDevice
+    do {
+      try syntaxCheck.run()
+      syntaxCheck.waitUntilExit()
+    } catch { return nil }
+    guard syntaxCheck.terminationStatus == 0 else { return nil }
+
+    // Check if the first word is an actual executable
+    let whichCheck = Process()
+    whichCheck.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+    whichCheck.arguments = [firstWord]
+    whichCheck.standardOutput = FileHandle.nullDevice
+    whichCheck.standardError = FileHandle.nullDevice
+    do {
+      try whichCheck.run()
+      whichCheck.waitUntilExit()
+    } catch { return nil }
+    guard whichCheck.terminationStatus == 0 else { return nil }
+
+    // It's a real shell command — execute it
+    debug("SHELL COMMAND detected: \(trimmed)")
+    do {
+      return try await shell.execute(trimmed)
+    } catch {
+      return nil
+    }
   }
 
   // MARK: - Pipeline Stages
@@ -786,8 +853,7 @@ public actor Orchestrator {
         content = fixed.content
       }
       // Final validation check after retries exhausted
-      if let finalError = jsValidator.feedbackForLLM(code: content, filePath: path)
-          ?? swiftValidator.feedbackForLLM(code: content, filePath: path) {
+      if let finalError = validatorRegistry.validate(code: content, filePath: path) {
         debug("Validation failed after \(retries) retries for \(path): \(finalError)")
         return "VALIDATION FAILED: \(finalError)"
       }
@@ -826,8 +892,7 @@ public actor Orchestrator {
         )
         content = fixed.content
       }
-      if let finalError = jsValidator.feedbackForLLM(code: content, filePath: path)
-          ?? swiftValidator.feedbackForLLM(code: content, filePath: path) {
+      if let finalError = validatorRegistry.validate(code: content, filePath: path) {
         debug("Validation failed after \(writeRetries) retries for \(path): \(finalError)")
         return "VALIDATION FAILED: \(finalError)"
       }

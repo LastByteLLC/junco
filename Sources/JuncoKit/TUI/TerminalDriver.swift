@@ -16,7 +16,7 @@ import Foundation
 /// A parsed keyboard event.
 public enum Key: Equatable, Sendable {
   case char(Character)
-  case enter, tab, backspace, delete, escape
+  case enter, shiftEnter, tab, backspace, delete, escape
   case up, down, left, right
   case home, end
   case ctrlC, ctrlD, ctrlU, ctrlW, ctrlL
@@ -101,6 +101,10 @@ public final class TerminalDriver: @unchecked Sendable, TerminalIO {
     switch byte {
     case 0x1B:
       guard let next = readByte() else { return .escape }
+
+      // Alt+Enter → shiftEnter (most reliable multi-line trigger)
+      if next == 0x0D || next == 0x0A { return .shiftEnter }
+
       if next == 0x5B {
         guard let code = readByte() else { return .escape }
         switch code {
@@ -113,6 +117,17 @@ public final class TerminalDriver: @unchecked Sendable, TerminalIO {
         case 0x33:
           _ = readByte() // consume ~
           return .delete
+        case 0x31:
+          // Kitty keyboard protocol: \x1b[13;2u = Shift+Enter
+          // Read remaining bytes: 3;2u or other sequences
+          var seqBuf: [UInt8] = [code]
+          while let b = readByte() {
+            seqBuf.append(b)
+            if b == 0x75 || b == 0x7E || b.isASCIILetter { break } // u, ~, or letter terminates
+          }
+          let seq = String(bytes: seqBuf, encoding: .ascii) ?? ""
+          if seq.contains("3;2u") { return .shiftEnter }  // \x1b[13;2u
+          return .escape
         default: return .escape
         }
       }
@@ -246,5 +261,11 @@ public final class TerminalDriver: @unchecked Sendable, TerminalIO {
   /// Apply dim style to text.
   public static func dim(_ s: String) -> String {
     "\u{1B}[2m\(s)\u{1B}[0m"
+  }
+}
+
+private extension UInt8 {
+  var isASCIILetter: Bool {
+    (0x41...0x5A).contains(self) || (0x61...0x7A).contains(self)
   }
 }

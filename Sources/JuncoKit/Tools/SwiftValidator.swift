@@ -6,7 +6,13 @@
 import Foundation
 
 /// Validates Swift source code using the compiler's parser.
-public struct SwiftValidator: Sendable {
+public struct SwiftValidator: CodeValidator, Sendable {
+  public var supportedExtensions: Set<String> { ["swift"] }
+
+  /// CodeValidator conformance — delegates to feedbackForLLM.
+  public func validate(code: String, filePath: String) -> String? {
+    feedbackForLLM(code: code, filePath: filePath)
+  }
 
   /// Returns nil if code is valid Swift, or an error description for LLM feedback.
   public func feedbackForLLM(code: String, filePath: String) -> String? {

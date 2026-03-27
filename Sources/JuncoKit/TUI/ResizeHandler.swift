@@ -38,11 +38,11 @@ public func installSignalHandlers() {
     terminalResizeFlag.set()
   }
 
-  // SIGINT (Ctrl-C): restore screen and exit cleanly
+  // SIGINT (Ctrl-C): clean exit
   signal(SIGINT) { _ in
-    // Restore alternate screen buffer (signal-safe: just write bytes)
-    let restore = "\u{1B}[?1049l\n"
-    restore.withCString { ptr in
+    // Restore cursor visibility and reset style (signal-safe writes)
+    let reset = "\u{1B}[?25h\u{1B}[0m\n"
+    reset.withCString { ptr in
       _ = write(STDOUT_FILENO, ptr, strlen(ptr))
     }
     _exit(130)  // Standard Ctrl-C exit code
@@ -50,8 +50,8 @@ public func installSignalHandlers() {
 
   // SIGTERM: same cleanup
   signal(SIGTERM) { _ in
-    let restore = "\u{1B}[?1049l\n"
-    restore.withCString { ptr in
+    let reset = "\u{1B}[?25h\u{1B}[0m\n"
+    reset.withCString { ptr in
       _ = write(STDOUT_FILENO, ptr, strlen(ptr))
     }
     _exit(143)

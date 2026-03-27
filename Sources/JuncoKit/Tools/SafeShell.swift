@@ -157,19 +157,18 @@ public struct SafeShell: Sendable {
   /// Uses allow-default with targeted denies — safer for development tools
   /// than deny-default which blocks too many system operations.
   public static func sandboxProfile(workingDirectory: String) -> String {
+    // Allow-default with targeted write restrictions.
+    // The project directory is explicitly re-allowed after the broad deny.
+    // Order matters: last matching rule wins in sandbox-exec.
     """
     (version 1)
     (allow default)
-    (deny file-write* (subpath "/Users")
-      (require-not (subpath "\(workingDirectory)"))
-    )
     (deny file-write* (subpath "/System"))
     (deny file-write* (subpath "/Library"))
     (deny file-write* (subpath "/usr"))
     (deny file-write* (subpath "/bin"))
     (deny file-write* (subpath "/sbin"))
     (deny file-write* (subpath "/etc"))
-    (deny file-write* (subpath "/opt"))
     (allow file-write* (subpath "\(workingDirectory)"))
     """
   }

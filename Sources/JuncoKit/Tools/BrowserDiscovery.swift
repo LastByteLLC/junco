@@ -148,12 +148,12 @@ public struct BrowserDiscovery: Sendable {
 
     let name = (path as NSString).lastPathComponent.replacingOccurrences(of: ".app", with: "")
 
-    // Firefox version
+    // Firefox version — read from Info.plist, don't launch the binary
+    // (Firefox 149+ crashes on macOS 26 during font registration in --version mode)
     let version = await shellOutput(
-      "\"\(path)/Contents/MacOS/firefox\" --version 2>/dev/null"
+      "defaults read \"\(path)/Contents/Info\" CFBundleShortVersionString 2>/dev/null"
     )
-    let versionClean = version?.replacingOccurrences(of: "Mozilla Firefox ", with: "")
-      .trimmingCharacters(in: .whitespacesAndNewlines) ?? "unknown"
+    let versionClean = version?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "unknown"
 
     let localDriver = await shellOutput("which geckodriver 2>/dev/null")
     let npxAvailable = await shellOutput("npx --yes geckodriver --version 2>/dev/null") != nil

@@ -82,11 +82,17 @@ public enum Terminal {
   }
 
   /// Print a permanent line (won't be overwritten).
+  /// Word-wraps to terminal width to prevent hard clipping on resize.
   /// In piped mode, strips ANSI codes for clean output.
   public static func line(_ message: String) {
     if isInteractive {
       clearLine()
-      print(message)
+      let width = terminalWidth()
+      if width > 40 {
+        print(wordWrap(message, width: width))
+      } else {
+        print(message)
+      }
     } else {
       // Strip ANSI escape sequences for piped output
       let clean = message.replacingOccurrences(
@@ -94,6 +100,83 @@ public enum Terminal {
       )
       print(clean)
     }
+  }
+
+  /// Word-wrap text to a given width, respecting ANSI escape codes.
+  /// ANSI codes have zero visual width but must be preserved in output.
+  static func wordWrap(_ text: String, width: Int) -> String {
+    // Don't wrap short lines or lines that are already under width
+    let visWidth = visibleWidth(text)
+    guard visWidth > width else { return text }
+
+    // Split into lines first (preserve existing line breaks)
+    let lines = text.components(separatedBy: "\n")
+    return lines.map { line -> String in
+      let lineWidth = visibleWidth(line)
+      guard lineWidth > width else { return line }
+      return wrapSingleLine(line, width: width)
+    }.joined(separator: "\n")
+  }
+
+  /// Wrap a single line (no newlines) to the given width.
+  private static func wrapSingleLine(_ line: String, width: Int) -> String {
+    var result = ""
+    var currentWidth = 0
+    var lastBreakResult = result.startIndex
+    var inEscape = false
+    var i = line.startIndex
+
+    while i < line.endIndex {
+      let ch = line[i]
+
+      // Track ANSI escape sequences (zero width)
+      if ch == "\u{1B}" {
+        inEscape = true
+        result.append(ch)
+        i = line.index(after: i)
+        continue
+      }
+      if inEscape {
+        result.append(ch)
+        if ch.isLetter { inEscape = false }
+        i = line.index(after: i)
+        continue
+      }
+
+      // Track word boundaries for wrapping
+      if ch == " " {
+        lastBreakResult = result.endIndex
+      }
+
+      result.append(ch)
+      currentWidth += 1
+
+      if currentWidth >= width && i < line.index(before: line.endIndex) {
+        // Wrap at the last word boundary if we found one
+        if lastBreakResult > result.startIndex && lastBreakResult < result.endIndex {
+          result.insert("\n", at: lastBreakResult)
+        } else {
+          result.append("\n")
+        }
+        currentWidth = 0
+      }
+
+      i = line.index(after: i)
+    }
+
+    return result
+  }
+
+  /// Calculate the visible width of a string (ignoring ANSI escape codes).
+  static func visibleWidth(_ text: String) -> Int {
+    let stripped = text.replacingOccurrences(
+      of: "\u{1B}\\[[0-9;]*[a-zA-Z]", with: "", options: .regularExpression
+    )
+    // Count only characters on the last line (after last newline)
+    if let lastNewline = stripped.lastIndex(of: "\n") {
+      return stripped[stripped.index(after: lastNewline)...].count
+    }
+    return stripped.count
   }
 
   /// Print a section header.

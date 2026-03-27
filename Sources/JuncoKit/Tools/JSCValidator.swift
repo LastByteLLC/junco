@@ -28,7 +28,13 @@ public struct JSValidationResult: Sendable {
 
 /// Validates JavaScript code using JavaScriptCore.
 /// Thread-safe: creates a fresh JSContext per validation (lightweight).
-public struct JSCValidator: Sendable {
+public struct JSCValidator: CodeValidator, Sendable {
+  public var supportedExtensions: Set<String> { ["js", "jsx", "mjs", "cjs"] }
+
+  /// CodeValidator conformance — delegates to feedbackForLLM.
+  public func validate(code: String, filePath: String) -> String? {
+    feedbackForLLM(code: code, filePath: filePath)
+  }
   public init() {}
 
   /// Validate JS code for syntax and runtime errors.

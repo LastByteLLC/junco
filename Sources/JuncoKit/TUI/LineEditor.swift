@@ -212,6 +212,13 @@ public struct LineEditor: Sendable {
         completions = []
         sel = -1
 
+      // --- Multi-line (Alt+Enter or Shift+Enter) ---
+      case .shiftEnter:
+        buf.insert("\n", at: cur)
+        cur += 1
+        sel = -1
+        completions = []
+
       // --- Submit ---
       case .enter:
         if sel >= 0 && !completions.isEmpty {

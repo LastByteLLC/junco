@@ -84,8 +84,8 @@ struct Junco: AsyncParsableCommand {
 
     // Welcome message
     let domain = await orchestrator.domain
-    // Take over the terminal — alternate screen buffer
-    Terminal.enterFullScreen()
+    // Stay in the main screen buffer so users can scroll back through output.
+    // (enterFullScreen switches to the alternate buffer which has no scrollback.)
 
     let gitBranch = await session.gitContext()
     let fileCount = FileTools(workingDirectory: cwd).listFiles().count
@@ -122,7 +122,8 @@ struct Junco: AsyncParsableCommand {
 
     // Line editor with completers
     let driver = TerminalDriver()
-    let promptStr = Style.cyan("junco") + Style.dim("> ")
+    let caret = Style.cyan("❯") + " "
+    let promptStr = caret
     let editor: LineEditor? = driver.map { _ in
       LineEditor(
         prompt: promptStr,
@@ -131,6 +132,11 @@ struct Junco: AsyncParsableCommand {
     }
 
     while true {
+      // Draw prompt border
+      let width = Terminal.terminalWidth()
+      let topBorder = Style.dim(String(repeating: "─", count: min(width, 60)))
+      Terminal.line(topBorder)
+
       let line: String?
       if let editor, let driver {
         driver.enableRawMode()
@@ -141,8 +147,11 @@ struct Junco: AsyncParsableCommand {
         fflush(stdout)
         line = Swift.readLine()
       }
+
+      // Bottom border after input
+      let bottomBorder = Style.dim(String(repeating: "─", count: min(width, 60)))
+      Terminal.line(bottomBorder)
       guard let input = line else {
-        Terminal.leaveFullScreen()
         break
       }
       let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -153,7 +162,6 @@ struct Junco: AsyncParsableCommand {
 
       if trimmed.lowercased() == "exit" || trimmed.lowercased() == "quit" {
         await printSessionSummary(orchestrator: orchestrator, sessionStart: sessionStart)
-        Terminal.leaveFullScreen()
         break
       }
 
