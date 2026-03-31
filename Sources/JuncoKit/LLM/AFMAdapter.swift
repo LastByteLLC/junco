@@ -1,24 +1,48 @@
 // AFMAdapter.swift — Apple Foundation Models backend
 
+import Foundation
 import FoundationModels
 
 /// On-device LLM adapter using Apple Foundation Models.
 /// Each call creates a fresh LanguageModelSession (lightweight, not designed for reuse
 /// across unrelated prompts).
+/// Optionally loads a LoRA adapter from a .fmadapter package for improved output quality.
 public actor AFMAdapter: LLMAdapter {
 
+  /// LoRA adapter loaded from .fmadapter package, if available.
+  private var loraAdapter: SystemLanguageModel.Adapter?
+
   public init() {}
+
+  /// Try to load the junco LoRA adapter by registered name.
+  /// Fails silently — junco works fine without it, just with lower quality.
+  public func loadAdapter(named name: String = "junco_coding") {
+    loraAdapter = try? SystemLanguageModel.Adapter(name: name)
+  }
+
+  /// Load adapter from a .fmadapter file on disk (for local testing).
+  public func loadAdapter(from url: URL) {
+    loraAdapter = try? SystemLanguageModel.Adapter(fileURL: url)
+  }
+
+  /// Whether a LoRA adapter is currently loaded.
+  public var hasAdapter: Bool { loraAdapter != nil }
+
+  // MARK: - Session factory
+
+  private func makeSession(system: String?) -> LanguageModelSession {
+    let model: SystemLanguageModel = loraAdapter.map { SystemLanguageModel(adapter: $0) } ?? .default
+    if let system {
+      return LanguageModelSession(model: model, instructions: system)
+    } else {
+      return LanguageModelSession(model: model)
+    }
+  }
 
   // MARK: - Plain text generation
 
   public func generate(prompt: String, system: String?) async throws -> String {
-    let model = SystemLanguageModel.default
-    let session: LanguageModelSession
-    if let system {
-      session = LanguageModelSession(model: model, instructions: system)
-    } else {
-      session = LanguageModelSession(model: model)
-    }
+    let session = makeSession(system: system)
 
     do {
       let response = try await session.respond(to: prompt)
@@ -37,13 +61,7 @@ public actor AFMAdapter: LLMAdapter {
     system: String?,
     onChunk: @escaping @Sendable (String) async -> Void
   ) async throws -> String {
-    let model = SystemLanguageModel.default
-    let session: LanguageModelSession
-    if let system {
-      session = LanguageModelSession(model: model, instructions: system)
-    } else {
-      session = LanguageModelSession(model: model)
-    }
+    let session = makeSession(system: system)
 
     do {
       var fullText = ""
@@ -72,13 +90,7 @@ public actor AFMAdapter: LLMAdapter {
     system: String?,
     as type: T.Type
   ) async throws -> T {
-    let model = SystemLanguageModel.default
-    let session: LanguageModelSession
-    if let system {
-      session = LanguageModelSession(model: model, instructions: system)
-    } else {
-      session = LanguageModelSession(model: model)
-    }
+    let session = makeSession(system: system)
 
     do {
       let response = try await session.respond(to: prompt, generating: type)

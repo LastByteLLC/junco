@@ -174,7 +174,37 @@ public struct SkillLoader: Sendable {
           @State for view-local state, @Binding for parent-owned, @Environment for DI. \
           Extract subviews over long body expressions. Never force-unwrap in view body. \
           Use .task {} not .onAppear for async work. Prefer value types. \
-          Use @Observable (macOS 26) over ObservableObject where possible.
+          IMPORTANT: Use @Observable, NOT ObservableObject. @Observable does NOT use @Published — \
+          properties are tracked automatically. Use @ObservationIgnored to opt out. \
+          NavigationStack (not NavigationView). FormatStyle (not DateFormatter).
+          """,
+        tools: nil, maxSteps: nil
+      ),
+      MicroSkill(
+        name: "swift-entitlements",
+        domain: "swift", taskTypes: ["add"],
+        hint: """
+          Common macOS entitlement keys (use exact strings): \
+          com.apple.security.app-sandbox, com.apple.security.network.client, \
+          com.apple.security.network.server, com.apple.security.files.user-selected.read-write, \
+          com.apple.security.files.user-selected.read-only, com.apple.security.device.audio-input, \
+          com.apple.security.device.camera, com.apple.security.device.usb, \
+          com.apple.security.application-groups, com.apple.security.personal-information.location. \
+          iOS Info.plist privacy keys: NSCameraUsageDescription, NSMicrophoneUsageDescription, \
+          NSLocationWhenInUseUsageDescription, NSPhotoLibraryUsageDescription, \
+          NSHealthShareUsageDescription, NSCalendarsUsageDescription.
+          """,
+        tools: nil, maxSteps: nil
+      ),
+      MicroSkill(
+        name: "swift-package-manifest",
+        domain: "swift", taskTypes: ["add"],
+        hint: """
+          Package.swift uses PackageDescription, NOT Foundation. Structure: \
+          import PackageDescription; let package = Package(name:, platforms: [.macOS(.v15), .iOS(.v18)], \
+          products: [.library(name:, targets:)], dependencies: [.package(url:, from:)], \
+          targets: [.target(name:, dependencies:), .testTarget(name:, dependencies:)]). \
+          This is a manifest, NOT a regular Swift source file.
           """,
         tools: nil, maxSteps: nil
       ),

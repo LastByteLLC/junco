@@ -41,12 +41,30 @@ struct Junco: AsyncParsableCommand {
   @Flag(name: .shortAndLong, help: "Show debug output for every pipeline stage (to stderr)")
   var verbose = false
 
+  @Flag(name: .long, help: "Disable LoRA adapter (use base model only)")
+  var noAdapter = false
+
+  @Option(name: .long, help: "Path to .fmadapter package (default: bundled)")
+  var adapterPath: String?
+
   // Shared services (lazy initialized)
   private var cwd: String { directory ?? FileManager.default.currentDirectoryPath }
 
   func run() async throws {
     let cwd = self.cwd
     let adapter = AFMAdapter()
+
+    if !noAdapter {
+      if let path = adapterPath {
+        await adapter.loadAdapter(from: URL(fileURLWithPath: path))
+      } else {
+        await adapter.loadAdapter()
+      }
+      if await adapter.hasAdapter {
+        FileHandle.standardError.write(Data("[junco] LoRA adapter loaded\n".utf8))
+      }
+    }
+
     let orchestrator = Orchestrator(adapter: adapter, workingDirectory: cwd)
     if verbose { await orchestrator.setVerbose(true) }
 

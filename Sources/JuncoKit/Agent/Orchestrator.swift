@@ -181,10 +181,11 @@ public actor Orchestrator {
       return RunResult(memory: memory, reflection: reflection, wasStreamed: true)
     }
 
-    // Fast path: simple file creation — bypass strategy/plan/execute
-    // Direct-AFM testing showed 90% quality from a single well-crafted prompt
-    // vs 11% through the full pipeline. For simple creates, 1 call is better than 10.
-    if intent.taskType == "add" && intent.complexity == "simple" {
+    // Fast path: DISABLED — the LoRA adapter makes the full pipeline reliable,
+    // and the fast path hits context window limits on non-trivial file creation.
+    // The regular pipeline (strategy → plan → execute) gives the model separate
+    // token budgets per stage, avoiding overflow.
+    if false && intent.taskType == "add" && intent.complexity == "simple" {
       let newTargets = intent.targets.filter { !files.exists($0) }
       if !newTargets.isEmpty && newTargets.count <= 2 && explicitContext.isEmpty {
         debug("FAST PATH: simple create for \(newTargets)")
@@ -458,7 +459,10 @@ public actor Orchestrator {
 
     let identityPatterns = [
       "who are you", "what are you", "introduce yourself",
-      "what is junco", "what can you do", "help me",
+      "what is junco", "what can you do", "what can junco do",
+      "what do you do", "what does junco do", "help me",
+      "what are your capabilities", "tell me about yourself",
+      "tell me about junco",
     ]
     if identityPatterns.contains(where: { lower.contains($0) }) {
       return "I'm junco, an on-device AI coding agent running on Apple Foundation Models. " +
@@ -724,9 +728,30 @@ public actor Orchestrator {
     case "create":
       let createURLs = Self.extractURLs(memory.query)
       let createURLHint = createURLs.isEmpty ? "" : "\nIMPORTANT: Use these exact URLs (do not substitute): \(createURLs.joined(separator: ", "))"
+
+      // Context-aware system prompt based on target file
+      var createSystem = "Generate file path and complete content for a new file. Follow the user's request precisely."
+      let target = step.target.lowercased()
+      if target.hasSuffix("package.swift") {
+        createSystem = "Generate a valid SPM Package.swift manifest. Use: import PackageDescription; let package = Package(name:, platforms:, products:, dependencies:, targets:). This is NOT a regular Swift source file."
+      } else if target.hasSuffix(".entitlements") {
+        createSystem += " Use exact Apple entitlement key strings. Sandbox: com.apple.security.app-sandbox. Network: com.apple.security.network.client."
+      } else if target.hasSuffix(".plist") {
+        createSystem += " Generate valid XML plist with correct Apple keys."
+      }
+      // Inject domain skill hint for Swift files
+      if target.hasSuffix(".swift") {
+        let skillHint = skillLoader.skillHints(
+          domain: memory.intent?.domain ?? "swift",
+          taskType: memory.intent?.taskType ?? "add",
+          budget: 150
+        )
+        if let hint = skillHint { createSystem += " " + hint }
+      }
+
       let p = try await adapter.generateStructured(
         prompt: "\(base)\nUser request: \(TokenBudget.truncate(memory.query, toTokens: 150))\(createURLHint)",
-        system: "Generate file path and complete content for a new file. Follow the user's request precisely.",
+        system: createSystem,
         as: CreateParams.self
       )
       let path = step.target.isEmpty ? p.filePath : step.target
@@ -744,9 +769,18 @@ public actor Orchestrator {
       return .write(path: writePath, content: p.content)
 
     case "edit":
+      var editSystem = "Specify exact text to find and its replacement. Find text must match the file exactly. Use a full line or block, not a single word."
+      if step.target.hasSuffix(".swift") {
+        let skillHint = skillLoader.skillHints(
+          domain: memory.intent?.domain ?? "swift",
+          taskType: memory.intent?.taskType ?? "fix",
+          budget: 100
+        )
+        if let hint = skillHint { editSystem += " " + hint }
+      }
       let p = try await adapter.generateStructured(
         prompt: "\(base)\nUser request: \(TokenBudget.truncate(memory.query, toTokens: 150))\n\nFile content:\n\(codeContext)",
-        system: "Specify exact text to find and its replacement. Find text must match the file exactly.",
+        system: editSystem,
         as: EditParams.self
       )
       let editPath = step.target.isEmpty ? p.filePath : step.target
