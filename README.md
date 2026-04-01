@@ -1,13 +1,37 @@
-# junco
+# Junco
 
-An AI coding agent that runs entirely on-device using Apple Foundation Models (AFM). No API keys, no cloud, no telemetry.
+<p align="center">
+  <img src="junco.png" width="128" height="128" alt="Junco Icon" />
+</p>
 
-Junco uses a micro-conversation pipeline to work within AFM's tiny 4K token context window — each stage (classify, plan, execute & reflect) is a separate LLM call with focused context and structured `@Generable` output. A trained CRF text classifier handles intent detection in ~10ms, and a reflexion loop stores insights for future tasks.
+<h1 align="center">Junco</h1>
+
+<p align="center">
+  <strong>Free, local AI coding Agent for macOS and iOS apps</strong><br />
+  Junco runs <i>on-device</i> using Apple Intelligence. No rate limits, no API keys, no subscriptions.
+</p>
+
+<p align="center">
+  <a href="https://apple.com/macos"><img src="https://img.shields.io/badge/macOS-26%2B-lightgrey.svg" alt="macOS"></a>
+  <a href="https://swift.org"><img src="https://img.shields.io/badge/Swift-6.0-F05138.svg" alt="Swift"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
+  <a href="http://makeapullrequest.com"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome"></a>
+</p>
+
+<p align="center">
+  <a href="#building">Building</a> ·
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#requirements">Requirements</a>
+</p>
+
+**Junco** is an AI coding agent that runs entirely on-device using Apple Foundation Models (AFM). No API keys, no cloud, no telemetry.
+
+**Why Junco?** Junco uses a micro-conversation pipeline to work within AFM's tiny 4K token context window — each stage (classify, plan, execute & reflect) is a separate LLM call with focused context and structured `@Generable` output. A trained CRF text classifier handles intent detection in ~10ms, and a reflexion loop stores insights for future tasks. Junco also uses a [custom Low-Rank Adaptation (LoRA) adapter](https://developer.apple.com/documentation/foundationmodels/loading-and-using-a-custom-adapter-with-foundation-models) trained on recent Swift 6.3+ permissively-licensed code snippets, public documentation, and synthetic data to help steer the on-device model.
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/your-org/junco.git
+git clone https://github.com/LastByteLLC/junco.git
 cd junco
 swift build
 swift run junco
