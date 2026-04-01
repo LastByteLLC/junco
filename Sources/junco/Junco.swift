@@ -46,8 +46,11 @@ struct Junco: AsyncParsableCommand {
   @Flag(name: .long, help: "Disable LoRA adapter (use base model only)")
   var noAdapter = false
 
-  @Option(name: .long, help: "Path to .fmadapter package (default: bundled)")
-  var adapterPath: String?
+  @Flag(name: .long, help: "Disable all networking (no adapter download, no web search)")
+  var offline = false
+
+  @Option(name: .long, help: "Path to a custom .fmadapter package (skips auto-download)")
+  var adapter: String?
 
   // Shared services (lazy initialized)
   private var cwd: String { directory ?? FileManager.default.currentDirectoryPath }
@@ -79,20 +82,76 @@ struct Junco: AsyncParsableCommand {
     if !checkAppleIntelligence() { return }
 
     let cwd = self.cwd
-    let adapter = AFMAdapter()
+    let afm = AFMAdapter()
 
     if !noAdapter {
-      if let path = adapterPath {
-        await adapter.loadAdapter(from: URL(fileURLWithPath: path))
+      if let path = adapter {
+        // User-provided adapter — load directly, no auto-download
+        let url = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: url.appendingPathComponent("adapter_weights.bin").path) else {
+          FileHandle.standardError.write(Data("Error: No valid .fmadapter found at \(path)\n".utf8))
+          FileHandle.standardError.write(Data("Expected adapter_weights.bin and metadata.json inside the package.\n".utf8))
+          return
+        }
+        await afm.loadAdapter(from: url)
+        if await !afm.hasAdapter {
+          FileHandle.standardError.write(Data("Error: Failed to load adapter from \(path)\n".utf8))
+          return
+        }
+        if verbose {
+          FileHandle.standardError.write(Data("[junco] Custom adapter loaded from \(path)\n".utf8))
+        }
       } else {
-        await adapter.loadAdapter()
+        // Auto-download from manifest
+        let downloader = AdapterDownloader()
+        let result = await downloader.resolve(
+          offline: offline,
+          askPermission: pipe ? nil : {
+            print("A LoRA adapter is available to improve code generation quality.")
+            print("Download it now? (~127 MB, cached for future use) [y/N] ", terminator: "")
+            return readLine()?.lowercased().hasPrefix("y") ?? false
+          },
+          isPipe: pipe
+        )
+
+        switch result {
+        case .cached(let url):
+          await afm.loadAdapter(from: url)
+          if verbose {
+            FileHandle.standardError.write(Data("[junco] LoRA adapter loaded (cached)\n".utf8))
+          }
+        case .downloaded(let url):
+          print("Adapter downloaded successfully.")
+          await afm.loadAdapter(from: url)
+          if verbose {
+            FileHandle.standardError.write(Data("[junco] LoRA adapter loaded (downloaded)\n".utf8))
+          }
+        case .noRelease:
+          if verbose {
+            FileHandle.standardError.write(Data("[junco] No adapter available for this OS version\n".utf8))
+          }
+        case .declined:
+          break  // Continue without adapter
+        case .failed(let error):
+          FileHandle.standardError.write(Data("[junco] Adapter download failed: \(error)\n".utf8))
+        case .offline:
+          if verbose {
+            FileHandle.standardError.write(Data("[junco] Offline mode — skipping adapter download\n".utf8))
+          }
+        }
+
+        // Fall back to registered adapter name if download didn't work
+        if await !afm.hasAdapter {
+          await afm.loadAdapter()
+        }
       }
-      if await adapter.hasAdapter {
-        FileHandle.standardError.write(Data("[junco] LoRA adapter loaded\n".utf8))
+
+      if await afm.hasAdapter && verbose {
+        FileHandle.standardError.write(Data("[junco] LoRA adapter active\n".utf8))
       }
     }
 
-    let orchestrator = Orchestrator(adapter: adapter, workingDirectory: cwd)
+    let orchestrator = Orchestrator(adapter: afm, workingDirectory: cwd)
     if verbose { await orchestrator.setVerbose(true) }
 
     let session = SessionManager(workingDirectory: cwd)
@@ -101,7 +160,7 @@ struct Junco: AsyncParsableCommand {
     let fileTree = FileTreeRenderer(workingDirectory: cwd)
     let persistence = SessionPersistence(workingDirectory: cwd)
     let notifications = NotificationService(workingDirectory: cwd)
-    let translator = TranslationService(adapter: adapter)
+    let translator = TranslationService(adapter: afm)
     let markdown = MarkdownRenderer()
     let diffRenderer = DiffRenderer()
     let phrases = ThinkingPhrases(projectDirectory: cwd)
@@ -154,7 +213,7 @@ struct Junco: AsyncParsableCommand {
 
     // Background task runner for idle-time work
     let bgContext = BackgroundContext(
-      workingDirectory: cwd, adapter: adapter, domain: domain
+      workingDirectory: cwd, adapter: afm, domain: domain
     )
     let bgRunner = BackgroundTaskRunner(context: bgContext)
 
