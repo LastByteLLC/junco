@@ -128,8 +128,55 @@ public struct PostGenerationLinter: Sendable {
     guard content.contains("XCTest") else { return content }
     var result = content
     result = result.replacingOccurrences(of: "import XCTest", with: "import Testing")
-    // Don't try to transform XCTAssert → #expect automatically — too many variants.
-    // The micro-skill already tells the model to use Swift Testing.
+    return result
+  }
+
+  // MARK: - Plain Text Output Cleanup
+
+  /// Clean raw LLM output for file content.
+  /// Strips markdown fences, leading prose, and normalizes whitespace.
+  /// Called after adapter.generate() for create/write (plain text path).
+  public func cleanPlainTextOutput(_ text: String, filePath: String) -> String {
+    var result = text
+
+    // Strip markdown code fences (model often wraps output in ```swift ... ```)
+    for fence in ["```swift\n", "```Swift\n", "```\n"] {
+      result = result.replacingOccurrences(of: fence, with: "")
+    }
+    result = result.replacingOccurrences(of: "\n```", with: "")
+
+    // Strip leading explanation prose before actual code
+    // Look for the first line that starts with code (import, struct, class, etc.)
+    let codeStarters = ["import ", "struct ", "class ", "enum ", "actor ", "protocol ",
+                        "func ", "let ", "var ", "//", "/*", "#!", "<?xml", "<!DOCTYPE",
+                        "{", "name:", "FROM ", ".PHONY", "on:", "#"]
+    let lines = result.components(separatedBy: "\n")
+    var firstCodeLine = 0
+    for (i, line) in lines.enumerated() {
+      let trimmed = line.trimmingCharacters(in: .whitespaces)
+      if codeStarters.contains(where: { trimmed.hasPrefix($0) }) {
+        firstCodeLine = i
+        break
+      }
+    }
+    if firstCodeLine > 0 {
+      // Check if lines before code are prose (contain "Here", "This", "Below", etc.)
+      let preamble = lines[0..<firstCodeLine].joined(separator: " ")
+      if preamble.contains("Here") || preamble.contains("This") || preamble.contains("Below")
+          || preamble.contains("following") || preamble.contains("create") {
+        result = lines[firstCodeLine...].joined(separator: "\n")
+      }
+    }
+
+    // Trim whitespace and ensure trailing newline
+    result = result.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !result.isEmpty && !result.hasSuffix("\n") { result += "\n" }
+
+    // Apply Swift-specific lint if applicable
+    if filePath.hasSuffix(".swift") {
+      result = lint(content: result, filePath: filePath)
+    }
+
     return result
   }
 }

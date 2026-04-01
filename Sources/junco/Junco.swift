@@ -4,8 +4,10 @@
 // thinking phrases, markdown rendering, diff display, command history,
 // notifications, web search, scratchpad, permissions.
 
+import AppKit
 import ArgumentParser
 import Foundation
+import FoundationModels
 import JuncoKit
 
 /// Thread-safe word counter for streaming progress display.
@@ -50,7 +52,32 @@ struct Junco: AsyncParsableCommand {
   // Shared services (lazy initialized)
   private var cwd: String { directory ?? FileManager.default.currentDirectoryPath }
 
+  /// Check that Apple Intelligence is available. Prompts user to enable it if not.
+  private func checkAppleIntelligence() -> Bool {
+    let model = SystemLanguageModel.default
+    guard model.isAvailable else {
+      print("Apple Intelligence is not available on this device.")
+      print("")
+      print("Junco requires Apple Intelligence to be enabled.")
+      print("Go to System Settings → Apple Intelligence & Siri to enable it.")
+      print("")
+
+      if !pipe {
+        print("Open System Settings now? [y/N] ", terminator: "")
+        if let answer = readLine(), answer.lowercased().hasPrefix("y") {
+          let url = URL(string: "x-apple.systempreferences:com.apple.preference.AppleIntelligence")!
+          NSWorkspace.shared.open(url)
+        }
+      }
+      return false
+    }
+    return true
+  }
+
   func run() async throws {
+    // Check Apple Intelligence availability before anything else
+    if !checkAppleIntelligence() { return }
+
     let cwd = self.cwd
     let adapter = AFMAdapter()
 

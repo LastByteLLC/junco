@@ -1,51 +1,39 @@
 // TokenBudget.swift — Token estimation and budget management
 //
-// AFM has a ~4096 token context window. Every token matters.
-// Approximation: 1 token ~ 4 characters (conservative for code).
+// Per TN3193: "roughly three to four characters in Latin alphabet languages"
+// Context window size derived from SystemLanguageModel.default.contextSize at runtime.
+
+import FoundationModels
 
 /// Token budget constants for each pipeline stage.
 public enum TokenBudget {
-  /// Total AFM context window.
-  public static let contextWindow = 4096
+
+  /// Context window size derived from the model at runtime.
+  /// Falls back to 4096 only if the model is unavailable.
+  public static var contextWindow: Int {
+    SystemLanguageModel.default.contextSize
+  }
 
   // MARK: - Per-stage budgets
 
-  /// Intent classification stage.
-  public static let classify = StageBudget(
-    system: 100, context: 200, prompt: 100, generation: 400
-  )
-
-  /// Strategy selection stage.
-  public static let strategy = StageBudget(
-    system: 100, context: 200, prompt: 100, generation: 400
-  )
-
-  /// Planning stage — needs more context for file listings.
-  public static let plan = StageBudget(
-    system: 150, context: 500, prompt: 150, generation: 800
-  )
-
-  /// Execution stage — needs code context.
-  public static let execute = StageBudget(
-    system: 150, context: 800, prompt: 200, generation: 1500
-  )
-
-  /// Observation compression.
-  public static let observe = StageBudget(
-    system: 80, context: 600, prompt: 80, generation: 300
-  )
-
-  /// Post-task reflection.
-  public static let reflect = StageBudget(
-    system: 100, context: 300, prompt: 100, generation: 400
-  )
+  public static let classify = StageBudget(system: 100, context: 200, prompt: 100, generation: 400)
+  public static let strategy = StageBudget(system: 100, context: 200, prompt: 100, generation: 400)
+  public static let plan = StageBudget(system: 150, context: 500, prompt: 150, generation: 800)
+  public static let execute = StageBudget(system: 150, context: 800, prompt: 200, generation: 1500)
+  public static let observe = StageBudget(system: 80, context: 600, prompt: 80, generation: 300)
+  public static let reflect = StageBudget(system: 100, context: 300, prompt: 100, generation: 400)
 
   // MARK: - Estimation
 
   /// Estimate token count from a string.
-  /// Conservative: 1 token per 4 characters for English/code mix.
+  /// TN3193: "roughly three to four characters" — use 4 for plain text, 3 for JSON.
   public static func estimate(_ text: String) -> Int {
     max(1, text.utf8.count / 4)
+  }
+
+  /// Estimate for structured output (JSON escaping inflates ~33%).
+  public static func estimateStructured(_ text: String) -> Int {
+    max(1, text.utf8.count / 3)
   }
 
   /// Estimate token count from multiple strings.
@@ -54,7 +42,7 @@ public enum TokenBudget {
   }
 
   /// Truncate text to fit within a token budget.
-  /// Prefers truncating from the middle (keeps start and end of code).
+  /// Keeps first 60% and last 30% with a marker in the middle.
   public static func truncate(_ text: String, toTokens limit: Int) -> String {
     let currentTokens = estimate(text)
     guard currentTokens > limit else { return text }
@@ -62,10 +50,9 @@ public enum TokenBudget {
     let charLimit = limit * 4
     guard charLimit > 40 else { return String(text.prefix(charLimit)) }
 
-    // Keep first 60% and last 30%, with a marker in the middle
     let keepStart = Int(Double(charLimit) * 0.6)
     let keepEnd = Int(Double(charLimit) * 0.3)
-    let marker = "\n... [truncated \(currentTokens - limit) tokens] ...\n"
+    let marker = "\n... [truncated] ...\n"
 
     let startIdx = text.index(text.startIndex, offsetBy: min(keepStart, text.count))
     let endIdx = text.index(text.endIndex, offsetBy: -min(keepEnd, text.count))
@@ -76,19 +63,12 @@ public enum TokenBudget {
 
 /// Budget allocation for a single pipeline stage.
 public struct StageBudget: Sendable {
-  /// Tokens reserved for system prompt.
   public let system: Int
-  /// Tokens reserved for context (code, memory, reflections).
   public let context: Int
-  /// Tokens reserved for the user prompt (step instruction, query).
   public let prompt: Int
-  /// Tokens available for generation.
   public let generation: Int
 
-  /// Total tokens this stage will use.
   public var total: Int { system + context + prompt + generation }
-
-  /// Tokens available for injected content (context budget).
   public var availableContext: Int { context }
 
   public init(system: Int, context: Int, prompt: Int, generation: Int) {

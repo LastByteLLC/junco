@@ -692,7 +692,7 @@ public actor Orchestrator {
     if let hint = skillHint { systemPrompt += " " + hint }
     if let notes = scratchpadCtx { systemPrompt += " " + notes }
 
-    // Phase 1: Choose tool
+    // Phase 1: Choose tool (TokenGuard applied automatically in adapter)
     memory.trackCall(estimatedTokens: 600)
     let choice = try await adapter.generateStructured(
       prompt: prompt, system: systemPrompt, as: ToolChoice.self
@@ -806,15 +806,32 @@ public actor Orchestrator {
             as: PrivacyManifestIntent.self
           )
           return .create(path: createTarget, content: templateRenderer.renderPrivacyManifest(intent))
+
+        } else if createTargetLower == ".gitignore" {
+          let intent = try await adapter.generateStructured(
+            prompt: intentPrompt,
+            system: "Determine which patterns to ignore. For Swift projects, include swiftPackage and xcode. Always include macOS.",
+            as: GitignoreIntent.self
+          )
+          return .create(path: createTarget, content: templateRenderer.renderGitignore(intent))
+
+        } else if createTargetLower.hasSuffix(".xcconfig") {
+          let intent = try await adapter.generateStructured(
+            prompt: intentPrompt,
+            system: "Generate xcconfig build settings as KEY = VALUE pairs.",
+            as: XcconfigIntent.self
+          )
+          return .create(path: createTarget, content: templateRenderer.renderXcconfig(intent))
         }
       }
 
-      // Route 2: LLM-generated content for code and prose files
+      // Route 2: Plain text generation for code and prose files
+      // Per TN3193: avoid @Generable for large content — JSON escaping doubles token cost.
+      // Generate content as plain text; file path comes from the plan step target.
       let createURLs = Self.extractURLs(memory.query)
-      let createURLHint = createURLs.isEmpty ? "" : "\nIMPORTANT: Use these exact URLs (do not substitute): \(createURLs.joined(separator: ", "))"
+      let createURLHint = createURLs.isEmpty ? "" : "\nUse these exact URLs: \(createURLs.joined(separator: ", "))"
 
-      var createSystem = "Generate the file content. Be concise."
-      // Inject domain skill hint for Swift files
+      var createSystem = "Output only the file content. No markdown fences, no explanation."
       if createTargetLower.hasSuffix(".swift") {
         let skillHint = skillLoader.skillHints(
           domain: memory.intent?.domain ?? "swift",
@@ -824,20 +841,13 @@ public actor Orchestrator {
         if let hint = skillHint { createSystem += " " + hint }
       }
 
-      // Budget-aware generation: estimate input tokens, cap output
-      let createPrompt = "\(base)\nRequest: \(TokenBudget.truncate(memory.query, toTokens: 120))\(createURLHint)"
-      let inputEstimate = TokenBudget.estimate(createPrompt) + TokenBudget.estimate(createSystem) + 150 // schema overhead
-      let maxOutput = max(500, TokenBudget.contextWindow - inputEstimate - 100) // 100 token safety margin
-      let createOptions = GenerationOptions(maximumResponseTokens: maxOutput)
+      let createPrompt = "Create \(createTarget).\nRequest: \(TokenBudget.truncate(memory.query, toTokens: 150))\(createURLHint)"
 
-      let p = try await adapter.generateStructured(
-        prompt: createPrompt,
-        system: createSystem,
-        as: CreateParams.self,
-        options: createOptions
-      )
-      let path = createTarget.isEmpty ? p.filePath : createTarget
-      return .create(path: path, content: p.content)
+      // Plain text generation — TokenGuard applied automatically in adapter
+      var content = try await adapter.generate(prompt: createPrompt, system: createSystem)
+      content = linter.cleanPlainTextOutput(content, filePath: createTarget)
+      let path = createTarget.isEmpty ? createTarget : createTarget
+      return .create(path: path, content: content)
 
     case "write":
       let writeURLs = Self.extractURLs(memory.query)

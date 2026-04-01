@@ -42,10 +42,20 @@ public actor AFMAdapter: LLMAdapter {
   // MARK: - Plain text generation
 
   public func generate(prompt: String, system: String?) async throws -> String {
-    let session = makeSession(system: system)
+    // Pre-flight token guard: compact if needed (no schema overhead for plain text)
+    let safeSystem = system ?? ""
+    let (compactSystem, compactPrompt) = await TokenGuard.compact(
+      system: safeSystem,
+      prompt: prompt,
+      adapter: self,
+      reserveForGeneration: 2500,  // Plain text gets more generation room
+      schemaOverhead: 0
+    )
+
+    let session = makeSession(system: compactSystem.isEmpty ? nil : compactSystem)
 
     do {
-      let response = try await session.respond(to: prompt)
+      let response = try await session.respond(to: compactPrompt)
       return response.content
     } catch let error as LanguageModelSession.GenerationError {
       throw LLMError.from(error)
@@ -84,21 +94,32 @@ public actor AFMAdapter: LLMAdapter {
   // MARK: - Structured generation (AFM-specific)
 
   /// Generate structured output constrained by a @Generable type.
-  /// This is the key advantage of AFM — guaranteed structural validity.
+  /// Automatically compacts prompts to fit the model's context window.
   public func generateStructured<T: GenerableContent>(
     prompt: String,
     system: String?,
     as type: T.Type,
     options: GenerationOptions? = nil
   ) async throws -> T {
-    let session = makeSession(system: system)
+    // Pre-flight token guard: compact if needed
+    // Schema overhead ~100-150 tokens, reserve ~800 for structured response
+    let safeSystem = system ?? ""
+    let (compactSystem, compactPrompt) = await TokenGuard.compact(
+      system: safeSystem,
+      prompt: prompt,
+      adapter: self,
+      reserveForGeneration: 800,
+      schemaOverhead: 150
+    )
+
+    let session = makeSession(system: compactSystem.isEmpty ? nil : compactSystem)
 
     do {
       if let options {
-        let response = try await session.respond(to: prompt, generating: type, options: options)
+        let response = try await session.respond(to: compactPrompt, generating: type, options: options)
         return response.content
       } else {
-        let response = try await session.respond(to: prompt, generating: type)
+        let response = try await session.respond(to: compactPrompt, generating: type)
         return response.content
       }
     } catch let error as LanguageModelSession.GenerationError {
