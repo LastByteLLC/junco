@@ -1,7 +1,7 @@
 // SwiftValidator.swift — Validate generated Swift code before writing to disk
 //
 // Runs `swiftc -parse` for fast syntax checking (~0.3s).
-// Integrated alongside JSCValidator in the create/write pipeline.
+// Integrated in the create/write pipeline via ValidatorRegistry.
 
 import Foundation
 

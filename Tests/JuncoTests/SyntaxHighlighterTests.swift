@@ -18,27 +18,12 @@ struct SyntaxHighlighterTests {
     #expect(result.contains("func"))
   }
 
-  @Test("JavaScript keywords are highlighted")
-  func jsKeywords() {
-    let code = "const x = async () => { return true }"
-    let result = highlighter.highlight(code, language: "js")
+  @Test("XML/plist tags are highlighted")
+  func xmlTags() {
+    let code = "<dict><key>CFBundleName</key><string>MyApp</string></dict>"
+    let result = highlighter.highlight(code, language: "plist")
     #expect(result.contains("\u{1B}["))
-    #expect(result.contains("const"))
-  }
-
-  @Test("HTML tags are highlighted")
-  func htmlTags() {
-    let code = "<div class=\"main\">hello</div>"
-    let result = highlighter.highlight(code, language: "html")
-    #expect(result.contains("\u{1B}["))
-    #expect(result.contains("div"))
-  }
-
-  @Test("CSS properties are highlighted")
-  func cssProperties() {
-    let code = "color: red; font-size: 14px;"
-    let result = highlighter.highlight(code, language: "css")
-    #expect(result.contains("\u{1B}["))
+    #expect(result.contains("dict"))
   }
 
   @Test("JSON keys are highlighted")

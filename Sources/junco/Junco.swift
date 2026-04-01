@@ -170,7 +170,7 @@ struct Junco: AsyncParsableCommand {
       guard let raw = readLine(), !raw.isEmpty else { return }
       let parser = InputParser(workingDirectory: cwd)
       let parsed = parser.parse(raw)
-      let urlCtx = await parser.fetchURLs(parsed.urls)
+      let urlCtx: String? = nil
       let processed = await session.processInput(parsed.query)
       var pipeSession = PersistedSession(workingDirectory: cwd, domain: "general")
       try await runQuery(
@@ -283,7 +283,7 @@ struct Junco: AsyncParsableCommand {
       // Parse input
       let parser = InputParser(workingDirectory: cwd)
       let parsed = parser.parse(trimmed)
-      let urlContext = await parser.fetchURLs(parsed.urls)
+      let urlContext: String? = nil
 
       // Translation: detect language, translate to English if needed
       let (translatedQuery, inputLang, translationMsg) = await translator.processInput(parsed.query)
@@ -525,28 +525,6 @@ struct Junco: AsyncParsableCommand {
         Terminal.line(Style.dim("      \(r.reflection.insight)"))
       }
 
-    case "/domain":
-      let domain = await orchestrator.domain
-      Terminal.line("Domain: \(Style.bold(domain.displayName))")
-      Terminal.line("Extensions: \(domain.fileExtensions.joined(separator: ", "))")
-      if let build = domain.buildCommand { Terminal.line("Build: \(Style.dim(build))") }
-      if let test = domain.testCommand { Terminal.line("Test: \(Style.dim(test))") }
-
-    case "/search":
-      guard let query = arg, !query.isEmpty else {
-        Terminal.line(Style.yellow("Usage: /search <query>"))
-        return
-      }
-      Terminal.status("Searching...")
-      let ws = WebSearch()
-      if let result = await ws.search(query: query) {
-        Terminal.clearLine()
-        Terminal.line(ws.formatForPrompt(result))
-      } else {
-        Terminal.clearLine()
-        Terminal.line(Style.dim("No results found."))
-      }
-
     case "/notes":
       let pad = Scratchpad(projectDirectory: cwd)
       if let noteArg = arg {
@@ -705,8 +683,6 @@ struct Junco: AsyncParsableCommand {
       ("/files", "Show project file tree"),
       ("/metrics", "Token usage, energy, call counts"),
       ("/reflections [q]", "Show stored reflections"),
-      ("/domain", "Detected project domain"),
-      ("/search <query>", "Web search (DuckDuckGo)"),
       ("/notes [key=val]", "Project scratchpad"),
       ("/session", "Show session history"),
       ("/lang [code]", "Set/show session language"),

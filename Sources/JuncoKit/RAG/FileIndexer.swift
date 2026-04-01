@@ -29,7 +29,7 @@ public struct FileIndexer: Sendable {
 
   /// Index all source files in the project.
   public func indexProject(
-    extensions: [String] = ["swift", "js", "ts"],
+    extensions: [String] = ["swift"],
     maxFiles: Int = 100
   ) -> [IndexEntry] {
     let ft = FileTools(workingDirectory: workingDirectory)
@@ -47,14 +47,9 @@ public struct FileIndexer: Sendable {
         lineNumber: 1, snippet: String(firstLine)
       ))
 
-      // Extract symbols based on language
-      switch ext {
-      case "swift":
+      // Extract symbols
+      if ext == "swift" {
         entries.append(contentsOf: extractSwiftSymbols(from: content, file: file))
-      case "js", "ts":
-        entries.append(contentsOf: extractJSSymbols(from: content, file: file))
-      default:
-        break
       }
     }
 
@@ -102,48 +97,4 @@ public struct FileIndexer: Sendable {
     return entries
   }
 
-  // MARK: - JavaScript/TypeScript Symbol Extraction
-
-  private func extractJSSymbols(from content: String, file: String) -> [IndexEntry] {
-    var entries: [IndexEntry] = []
-    let lines = content.components(separatedBy: "\n")
-
-    for (i, line) in lines.enumerated() {
-      let trimmed = line.trimmingCharacters(in: .whitespaces)
-
-      // Functions: function name, const name = () =>, export function
-      if let match = trimmed.firstMatch(of: /(?:export\s+)?(?:async\s+)?function\s+(\w+)/) {
-        let snippet = lines[i..<min(i + 3, lines.count)].joined(separator: "\n")
-        entries.append(IndexEntry(
-          filePath: file, symbolName: String(match.1), kind: .function,
-          lineNumber: i + 1, snippet: String(snippet.prefix(200))
-        ))
-      } else if let match = trimmed.firstMatch(of: /(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\(/) {
-        let snippet = lines[i..<min(i + 3, lines.count)].joined(separator: "\n")
-        entries.append(IndexEntry(
-          filePath: file, symbolName: String(match.1), kind: .function,
-          lineNumber: i + 1, snippet: String(snippet.prefix(200))
-        ))
-      }
-
-      // Classes
-      if let match = trimmed.firstMatch(of: /(?:export\s+)?class\s+(\w+)/) {
-        let snippet = lines[i..<min(i + 3, lines.count)].joined(separator: "\n")
-        entries.append(IndexEntry(
-          filePath: file, symbolName: String(match.1), kind: .type,
-          lineNumber: i + 1, snippet: String(snippet.prefix(200))
-        ))
-      }
-
-      // Imports
-      if trimmed.hasPrefix("import ") || trimmed.contains("require(") {
-        entries.append(IndexEntry(
-          filePath: file, symbolName: trimmed, kind: .import,
-          lineNumber: i + 1, snippet: String(trimmed.prefix(120))
-        ))
-      }
-    }
-
-    return entries
-  }
 }

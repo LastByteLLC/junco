@@ -74,41 +74,11 @@ struct RAGTests {
     #expect(types.contains { $0.symbolName == "Status" })
   }
 
-  @Test("indexes JavaScript functions")
-  func jsFunctions() throws {
-    let dir = try makeTempProject(files: [
-      "app.js": """
-        function handleClick(event) {
-          console.log(event);
-        }
-
-        const fetchData = async (url) => {
-          return fetch(url);
-        }
-
-        export class App {
-          constructor() {}
-        }
-        """,
-    ])
-    defer { cleanup(dir) }
-
-    let indexer = FileIndexer(workingDirectory: dir)
-    let entries = indexer.indexProject()
-
-    let functions = entries.filter { $0.kind == .function }
-    #expect(functions.contains { $0.symbolName == "handleClick" })
-    #expect(functions.contains { $0.symbolName == "fetchData" })
-
-    let types = entries.filter { $0.kind == .type }
-    #expect(types.contains { $0.symbolName == "App" })
-  }
-
   @Test("includes file-level entries")
   func fileEntries() throws {
     let dir = try makeTempProject(files: [
       "a.swift": "// file a",
-      "b.js": "// file b",
+      "b.swift": "// file b",
     ])
     defer { cleanup(dir) }
 

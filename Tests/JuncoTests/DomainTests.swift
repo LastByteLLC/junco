@@ -28,24 +28,6 @@ struct DomainTests {
     #expect(config.kind == .swift)
   }
 
-  @Test("detects JavaScript from package.json")
-  func detectJS() throws {
-    let dir = try makeTempDir(files: ["package.json": "{}"])
-    defer { cleanup(dir) }
-    let detector = DomainDetector(workingDirectory: dir)
-    let config = detector.detect()
-    #expect(config.kind == .javascript)
-  }
-
-  @Test("detects TypeScript from tsconfig.json")
-  func detectTS() throws {
-    let dir = try makeTempDir(files: ["tsconfig.json": "{}"])
-    defer { cleanup(dir) }
-    let detector = DomainDetector(workingDirectory: dir)
-    let config = detector.detect()
-    #expect(config.kind == .javascript)
-  }
-
   @Test("falls back to general for empty project")
   func detectGeneral() throws {
     let dir = try makeTempDir()
@@ -57,9 +39,7 @@ struct DomainTests {
 
   @Test("respects manual config override")
   func manualOverride() throws {
-    let dir = try makeTempDir(files: [
-      "package.json": "{}",  // Would normally detect as JS
-    ])
+    let dir = try makeTempDir()
     defer { cleanup(dir) }
 
     // Create manual override
@@ -78,25 +58,5 @@ struct DomainTests {
   func swiftExtensions() {
     #expect(Domains.swift.fileExtensions.contains("swift"))
     #expect(Domains.swift.buildCommand != nil)
-  }
-
-  @Test("JavaScript domain has correct file extensions")
-  func jsExtensions() {
-    let exts = Domains.javascript.fileExtensions
-    #expect(exts.contains("js"))
-    #expect(exts.contains("ts"))
-    #expect(exts.contains("css"))
-    #expect(exts.contains("html"))
-  }
-
-  @Test("detects by file extension count when no markers")
-  func detectByExtensions() throws {
-    let dir = try makeTempDir(files: [
-      "a.swift": "", "b.swift": "", "c.swift": "", "d.js": "",
-    ])
-    defer { cleanup(dir) }
-    let detector = DomainDetector(workingDirectory: dir)
-    let config = detector.detect()
-    #expect(config.kind == .swift)  // 3 swift > 1 js
   }
 }

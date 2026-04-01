@@ -12,7 +12,6 @@ public actor Orchestrator {
   private let adapter: AFMAdapter
   private let shell: SafeShell
   private let files: FileTools
-  private let jsValidator: JSCValidator
   private let swiftValidator: SwiftValidator
   private let validatorRegistry: ValidatorRegistry
   private let contextPacker: ContextPacker
@@ -28,6 +27,7 @@ public actor Orchestrator {
   private let linter: PostGenerationLinter
   private let errorExtractor: ErrorRegionExtractor
   private let templateRenderer: TemplateRenderer
+  private let webResearch: WebResearch
   private let workingDirectory: String
   public let domain: DomainConfig
   private let intentClassifier: IntentClassifier
@@ -49,7 +49,6 @@ public actor Orchestrator {
     self.adapter = adapter
     self.workingDirectory = workingDirectory
     self.shell = SafeShell(workingDirectory: workingDirectory)
-    self.jsValidator = JSCValidator()
     self.swiftValidator = SwiftValidator()
     self.validatorRegistry = ValidatorRegistry.default()
     self.files = FileTools(workingDirectory: workingDirectory)
@@ -71,6 +70,7 @@ public actor Orchestrator {
     self.linter = PostGenerationLinter()
     self.errorExtractor = ErrorRegionExtractor()
     self.templateRenderer = TemplateRenderer()
+    self.webResearch = WebResearch()
     self.metrics = SessionMetrics()
   }
 
@@ -138,7 +138,16 @@ public actor Orchestrator {
         debug("PRE-READ @\(path): \(TokenBudget.estimate(content)) tokens")
       }
     }
-    if let urlCtx = urlContext {
+
+    // Research Mode: auto-fetch URLs embedded in the query
+    if webResearch.hasURLs(in: query) {
+      debug("RESEARCH: fetching URLs from query")
+      let urlCtx = await webResearch.fetchURLContext(from: query, budget: 400)
+      if !urlCtx.isEmpty {
+        explicitContext += urlCtx.text + "\n"
+        debug("RESEARCH → \(urlCtx.sourceCount) source(s), \(urlCtx.tokens) tokens")
+      }
+    } else if let urlCtx = urlContext {
       explicitContext += urlCtx + "\n"
       debug("URL context: \(TokenBudget.estimate(urlCtx)) tokens")
     }
@@ -158,6 +167,19 @@ public actor Orchestrator {
     let intent = try await classify(query: query, memory: &memory, explicitTargets: referencedFiles)
     memory.intent = intent
     debug("CLASSIFY → domain:\(intent.domain) type:\(intent.taskType) complexity:\(intent.complexity) targets:\(intent.targets)")
+
+    // Research Mode: search web for disambiguation when needed
+    // Triggered when the query is ambiguous (explore with no targets) or
+    // references external APIs/frameworks.
+    if explicitContext.isEmpty &&
+       webResearch.needsResearch(query: query, intent: intent.taskType, targets: intent.targets) {
+      debug("RESEARCH: searching web for context")
+      let searchCtx = await webResearch.searchContext(query: query, budget: 300)
+      if !searchCtx.isEmpty {
+        explicitContext += searchCtx.text + "\n"
+        debug("RESEARCH → \(searchCtx.sourceCount) source(s), \(searchCtx.tokens) tokens")
+      }
+    }
 
     // Explain/explore shortcut with @-files — supports streaming
     if (intent.taskType == "explain" || intent.taskType == "explore") && !explicitContext.isEmpty {
@@ -969,8 +991,7 @@ public actor Orchestrator {
 
     var retries = 0
     while retries < Config.maxValidationRetries {
-      let feedback = jsValidator.feedbackForLLM(code: content, filePath: filePath)
-        ?? swiftValidator.feedbackForLLM(code: content, filePath: filePath)
+      let feedback = swiftValidator.feedbackForLLM(code: content, filePath: filePath)
       guard let error = feedback else { break }
       retries += 1
 
@@ -1219,7 +1240,7 @@ public actor Orchestrator {
       }
 
     case .search(let pattern):
-      let cmd = "grep -rn \(shellEscape(pattern)) . --include='*.swift' --include='*.js' --include='*.ts' --include='*.css' --include='*.html' | head -20"
+      let cmd = "grep -rn \(shellEscape(pattern)) . --include='*.swift' | head -20"
       let result = try await shell.execute(cmd)
       return result.formatted(maxTokens: Config.toolOutputMaxTokens)
     }

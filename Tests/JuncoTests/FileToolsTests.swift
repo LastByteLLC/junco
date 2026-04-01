@@ -97,13 +97,12 @@ struct FileToolsTests {
   @Test("listFiles finds project files")
   func listFiles() throws {
     let (dir, ft) = try makeTempDir(files: [
-      "a.swift": "", "b.js": "", "c.txt": "", "d.ts": "",
+      "a.swift": "", "b.swift": "", "c.txt": "",
     ])
     defer { cleanup(dir) }
     let list = ft.listFiles()
     #expect(list.contains("a.swift"))
-    #expect(list.contains("b.js"))
-    #expect(list.contains("d.ts"))
+    #expect(list.contains("b.swift"))
     #expect(!list.contains("c.txt"))  // .txt not in default extensions
   }
 

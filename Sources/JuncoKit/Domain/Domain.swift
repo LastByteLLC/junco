@@ -1,15 +1,13 @@
 // Domain.swift — Project domain detection and configuration
 //
-// Auto-detects project type from marker files (Package.swift → Swift,
-// package.json → JS/TS, etc.) and provides domain-specific configuration
-// for file patterns, build commands, and prompt hints.
+// Auto-detects Swift/Apple projects from marker files (Package.swift,
+// *.xcodeproj, *.xcworkspace). Falls back to general for non-Swift projects.
 
 import Foundation
 
 /// Supported project domains.
 public enum DomainKind: String, Codable, Sendable, CaseIterable {
   case swift
-  case javascript
   case general
 }
 
@@ -40,21 +38,10 @@ public enum Domains {
     markers: ["Package.swift", "*.xcodeproj", "*.xcworkspace"]
   )
 
-  public static let javascript = DomainConfig(
-    kind: .javascript,
-    displayName: "JavaScript / Web",
-    fileExtensions: ["js", "ts", "jsx", "tsx", "css", "html"],
-    buildCommand: "npm run build 2>&1 | tail -20",
-    testCommand: "npm test 2>&1 | tail -30",
-    lintCommand: "npx eslint . --quiet 2>&1 | head -20",
-    promptHint: "This is a JavaScript/TypeScript project. Use modern ES6+, prefer const, use async/await over callbacks.",
-    markers: ["package.json", "tsconfig.json"]
-  )
-
   public static let general = DomainConfig(
     kind: .general,
     displayName: "General",
-    fileExtensions: ["swift", "js", "ts", "py", "rb", "go", "rs", "c", "cpp", "h", "css", "html", "json", "yaml", "md"],
+    fileExtensions: Config.generalExtensions,
     buildCommand: nil,
     testCommand: nil,
     lintCommand: nil,
@@ -65,7 +52,6 @@ public enum Domains {
   public static func forKind(_ kind: DomainKind) -> DomainConfig {
     switch kind {
     case .swift: return swift
-    case .javascript: return javascript
     case .general: return general
     }
   }
@@ -100,33 +86,6 @@ public struct DomainDetector: Sendable {
       }
     }
 
-    // JavaScript markers
-    if fm.fileExists(atPath: path("package.json")) || fm.fileExists(atPath: path("tsconfig.json")) {
-      return Domains.javascript
-    }
-
-    // 3. Heuristic: count file extensions
-    return detectByExtensionCount()
-  }
-
-  /// Heuristic detection by counting source file extensions.
-  private func detectByExtensionCount() -> DomainConfig {
-    let ft = FileTools(workingDirectory: workingDirectory)
-    let files = ft.listFiles(
-      extensions: ["swift", "js", "ts", "jsx", "tsx"],
-      maxFiles: 50
-    )
-
-    var swiftCount = 0
-    var jsCount = 0
-    for file in files {
-      let ext = (file as NSString).pathExtension
-      if ext == "swift" { swiftCount += 1 }
-      if ["js", "ts", "jsx", "tsx"].contains(ext) { jsCount += 1 }
-    }
-
-    if swiftCount > jsCount && swiftCount > 0 { return Domains.swift }
-    if jsCount > swiftCount && jsCount > 0 { return Domains.javascript }
     return Domains.general
   }
 

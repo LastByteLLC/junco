@@ -25,7 +25,7 @@ public enum StepOutcome: String, Sendable, Codable {
 
 @Generable
 public struct AgentIntent: Codable, Sendable {
-  @Guide(description: "swift, javascript, or general")
+  @Guide(description: "swift or general")
   public var domain: String
 
   @Guide(description: "fix, add, refactor, explain, test, or explore")

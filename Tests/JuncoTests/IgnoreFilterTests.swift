@@ -11,7 +11,6 @@ struct IgnoreFilterTests {
     let filter = IgnoreFilter(workingDirectory: "/tmp")
     #expect(filter.shouldIgnore(".build/debug/main"))
     #expect(filter.shouldIgnore(".git/objects/abc"))
-    #expect(filter.shouldIgnore("node_modules/express/index.js"))
     #expect(filter.shouldIgnore(".junco/reflections.jsonl"))
     #expect(filter.shouldIgnore("DerivedData/Build/output"))
   }

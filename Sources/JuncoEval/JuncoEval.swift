@@ -79,7 +79,7 @@ struct JuncoEval {
     // Parse @-references from query
     let parser = InputParser(workingDirectory: dir)
     let parsed = parser.parse(scenario.query)
-    let urlCtx = await parser.fetchURLs(parsed.urls)
+    let urlCtx: String? = nil
 
     do {
       let result = try await orchestrator.run(

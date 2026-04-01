@@ -11,7 +11,7 @@ public struct ParsedInput: Sendable {
   public let query: String
   /// File paths extracted from @references.
   public let referencedFiles: [String]
-  /// URLs extracted from the query (HTTP upgraded to HTTPS).
+  /// URLs extracted from the query.
   public let urls: [URL]
   /// Whether the input was detected as a paste.
   public let isPaste: Bool
@@ -22,11 +22,9 @@ public struct ParsedInput: Sendable {
 /// Parses and processes raw user input.
 public struct InputParser: Sendable {
   private let files: FileTools
-  private let urlFetcher: URLFetcher
 
   public init(workingDirectory: String) {
     self.files = FileTools(workingDirectory: workingDirectory)
-    self.urlFetcher = URLFetcher()
   }
 
   /// Parse input: extract @file refs, URLs, detect paste, sanitize.
@@ -34,14 +32,14 @@ public struct InputParser: Sendable {
     let isPaste = raw.count > Config.pasteThreshold
 
     // Extract URLs first (before @-ref parsing could mangle them)
-    let (afterURLs, urls) = urlFetcher.separateURLs(from: raw)
+    let urls = extractURLs(from: raw)
 
     // Extract @file references
     var referencedFiles: [String] = []
-    var cleanQuery = afterURLs
+    var cleanQuery = raw
 
     let pattern = /@([\w\/\.\-]+\.\w+)/
-    let matches = afterURLs.matches(of: pattern)
+    let matches = raw.matches(of: pattern)
     for match in matches {
       let path = String(match.1)
       if files.exists(path) {
@@ -62,11 +60,18 @@ public struct InputParser: Sendable {
     )
   }
 
-  /// Fetch all extracted URLs and format for prompt context.
-  public func fetchURLs(_ urls: [URL], budget: Int = 800) async -> String? {
-    guard !urls.isEmpty else { return nil }
-    let fetched = await urlFetcher.fetchAll(urls: urls, totalBudget: budget)
-    return urlFetcher.formatForPrompt(fetched: fetched, budget: budget)
+  // MARK: - URL Extraction
+
+  /// Extract URLs from text using NSDataDetector.
+  private func extractURLs(from text: String) -> [URL] {
+    guard let detector = try? NSDataDetector(
+      types: NSTextCheckingResult.CheckingType.link.rawValue
+    ) else { return [] }
+    let range = NSRange(text.startIndex..., in: text)
+    return detector.matches(in: text, range: range).compactMap { match in
+      guard let r = Range(match.range, in: text) else { return nil }
+      return URL(string: String(text[r]))
+    }
   }
 
   // MARK: - File Matching

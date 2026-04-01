@@ -2,7 +2,7 @@
 //
 // Parses .juncoignore (gitignore-style) to exclude directories/files
 // from indexing, search, and listing. Always excludes .build, .git,
-// node_modules regardless of config.
+// .build, DerivedData regardless of config.
 
 import Foundation
 
@@ -12,9 +12,9 @@ public struct IgnoreFilter: Sendable {
 
   /// Always-excluded directories (hardcoded).
   private static let builtinIgnores = [
-    ".build", ".git", "node_modules", ".junco",
-    "DerivedData", ".swiftpm", "__pycache__", ".venv",
-    "Pods", "vendor/bundle", ".next", "dist", "build",
+    ".build", ".git", ".junco",
+    "DerivedData", ".swiftpm",
+    "Pods", "build",
   ]
 
   public init(workingDirectory: String) {

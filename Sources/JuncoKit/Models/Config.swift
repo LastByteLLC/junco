@@ -35,7 +35,7 @@ public enum Config {
   /// Default bash command timeout in seconds.
   public static let bashTimeout: TimeInterval = 30
 
-  /// Maximum retries when code validation (JSC/Swift) fails.
+  /// Maximum retries when code validation (Swift) fails.
   public static let maxValidationRetries = 2
 
   /// Whether to sandbox bash commands via sandbox-exec.
@@ -99,9 +99,7 @@ public enum Config {
   // MARK: - File Extensions by Domain
 
   public static let swiftExtensions = ["swift"]
-  public static let jsExtensions = ["js", "ts", "jsx", "tsx", "css", "html"]
   public static let generalExtensions = [
-    "swift", "js", "ts", "py", "rb", "go", "rs", "c", "cpp", "h",
-    "css", "html", "json", "yaml", "md",
+    "swift", "c", "cpp", "h", "json", "yaml", "md", "plist",
   ]
 }

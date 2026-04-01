@@ -1,7 +1,7 @@
 // SyntaxHighlighter.swift — Regex-based syntax highlighting for terminal output
 //
-// Highlights code blocks in supported languages: Swift, JavaScript, TypeScript,
-// HTML, CSS, XML/plist, JSON, bash. Applied inside fenced code blocks (```lang).
+// Highlights code blocks in supported languages: Swift, XML/plist, JSON, bash.
+// Applied inside fenced code blocks (```lang).
 
 import Foundation
 
@@ -13,10 +13,7 @@ public struct SyntaxHighlighter: Sendable {
   public func highlight(_ code: String, language: String) -> String {
     switch language.lowercased() {
     case "swift":                       return highlightSwift(code)
-    case "js", "javascript":            return highlightJS(code)
-    case "ts", "typescript":            return highlightTS(code)
-    case "html", "xml", "plist":        return highlightXML(code)
-    case "css":                         return highlightCSS(code)
+    case "xml", "plist", "html":        return highlightXML(code)
     case "json":                        return highlightJSON(code)
     case "bash", "sh", "shell", "zsh":  return highlightBash(code)
     default:                            return highlightGeneric(code)
@@ -47,33 +44,7 @@ public struct SyntaxHighlighter: Sendable {
     return result
   }
 
-  // MARK: - JavaScript / TypeScript
-
-  private func highlightJS(_ code: String) -> String {
-    var result = code
-    result = highlightComments(result)
-    result = highlightStrings(result)
-    result = colorizeKeywords(result, keywords: [
-      "const", "let", "var", "function", "class", "extends", "return",
-      "if", "else", "for", "while", "do", "switch", "case", "default",
-      "break", "continue", "import", "export", "from", "async", "await",
-      "try", "catch", "throw", "new", "this", "super", "typeof", "instanceof",
-      "true", "false", "null", "undefined", "yield", "of", "in",
-    ])
-    result = colorizeNumbers(result)
-    return result
-  }
-
-  private func highlightTS(_ code: String) -> String {
-    var result = highlightJS(code)
-    result = colorizeKeywords(result, keywords: [
-      "type", "interface", "enum", "implements", "declare", "readonly",
-      "as", "is", "keyof", "infer", "never", "unknown", "any",
-    ])
-    return result
-  }
-
-  // MARK: - HTML / XML / Plist
+  // MARK: - XML / Plist
 
   private func highlightXML(_ code: String) -> String {
     var result = code
@@ -95,29 +66,6 @@ public struct SyntaxHighlighter: Sendable {
     result = result.replacingOccurrences(
       of: "(<!--[\\s\\S]*?-->)",
       with: "\(esc(.dim))$1\(esc(.reset))",
-      options: .regularExpression
-    )
-    return result
-  }
-
-  // MARK: - CSS
-
-  private func highlightCSS(_ code: String) -> String {
-    var result = code
-    result = highlightComments(result)
-    result = highlightStrings(result)
-    // Properties: name:
-    result = result.replacingOccurrences(
-      of: "([a-z-]+)\\s*:",
-      with: "\(esc(.cyan))$1\(esc(.reset)):",
-      options: .regularExpression
-    )
-    // Values with units
-    result = colorizeNumbers(result)
-    // Selectors (lines that don't start with space and end with {)
-    result = result.replacingOccurrences(
-      of: "^([.#]?[\\w-]+)",
-      with: "\(esc(.yellow))$1\(esc(.reset))",
       options: .regularExpression
     )
     return result

@@ -96,18 +96,6 @@ public struct SkillLoader: Sendable {
         tools: nil, maxSteps: nil
       ),
       MicroSkill(
-        name: "js-modern",
-        domain: "javascript", taskTypes: ["add", "refactor"],
-        hint: "Use const/let, never var. Prefer async/await over .then(). Use optional chaining (?.) and nullish coalescing (??).",
-        tools: nil, maxSteps: nil
-      ),
-      MicroSkill(
-        name: "js-test",
-        domain: "javascript", taskTypes: ["test"],
-        hint: "Use describe/it/expect pattern. Mock with jest.fn(). Test async with async/await, not done callbacks.",
-        tools: nil, maxSteps: nil
-      ),
-      MicroSkill(
         name: "explain-only",
         domain: "*", taskTypes: ["explain"],
         hint: "Read-only task. Do NOT edit or write files. Only use read and search tools.",
@@ -235,10 +223,9 @@ public struct SkillLoader: Sendable {
         domain: "*", taskTypes: ["add"],
         hint: """
           When adding a dependency: verify it exists before adding \
-          (Swift: `swift package resolve`, JS: `npm info <pkg>` / `yarn info <pkg>` / `pnpm info <pkg>` / `bun pm ls`). \
-          Pin to a version range, not latest. For Swift use `.package(url:from:)`. \
-          For JS check package.json for which manager is used (look for yarn.lock, pnpm-lock.yaml, bun.lockb, or package-lock.json). \
-          Run the build after adding to confirm it resolves.
+          (Swift: `swift package resolve`). \
+          Pin to a version range, not latest. Use `.package(url:from:)`. \
+          Run `swift build` after adding to confirm it resolves.
           """,
         tools: nil, maxSteps: nil
       ),
@@ -270,45 +257,6 @@ public struct SkillLoader: Sendable {
           Use `/// Triple-slash` comments with `- Parameters:`, `- Returns:`, `- Throws:` for symbols. \
           Use `## Topics` sections in extension files to organize the symbol sidebar. \
           Link to symbols with `` ``MyType/myMethod(_:)`` `` (double backtick).
-          """,
-        tools: nil, maxSteps: nil
-      ),
-      MicroSkill(
-        name: "js-validate",
-        domain: "javascript", taskTypes: ["add", "fix", "refactor"],
-        hint: """
-          Before writing JS/TS files, validate syntax using JavaScriptCore. \
-          If validation fails, fix the error and regenerate. \
-          Common AFM mistakes: Python-style string formatting (use template literals instead), \
-          missing semicolons, incorrect import syntax. \
-          For Node.js code, require() and process won't work in validation — focus on syntax only.
-          """,
-        tools: nil, maxSteps: nil
-      ),
-      MicroSkill(
-        name: "web-e2e-test",
-        domain: "javascript", taskTypes: ["test"],
-        hint: """
-          E2E browser testing is a LATE-STAGE strategy. Try these first: \
-          1) Run existing tests: npm test / bun test / npx jest / npx vitest \
-          2) Add unit tests for pure functions \
-          3) Only use browser testing when UI behavior must be verified. \
-          \
-          Browser testing requires WebDriver. Check available browsers: \
-          - Safari: builtin safaridriver. Requires: sudo safaridriver --enable + \
-            Safari > Settings > Developer > Allow Remote Automation \
-          - Chrome: npx chromedriver (must match Chrome version). Supports --headless=new \
-          - Firefox: npx geckodriver. Supports -headless \
-          \
-          WebDriver workflow: \
-          1) Start dev server: npm run dev / npx serve / python3 -m http.server \
-          2) Navigate: send POST /session/{id}/url with {"url":"http://localhost:3000"} \
-          3) Assert: execute JS to query DOM — document.querySelector, textContent, etc. \
-          4) Interact: click(), type into inputs, check results \
-          5) Screenshot for visual verification \
-          6) Always delete the session when done \
-          \
-          If the user hasn't set up WebDriver, tell them what commands to run.
           """,
         tools: nil, maxSteps: nil
       ),
