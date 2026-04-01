@@ -32,7 +32,7 @@ struct WorkingMemoryTests {
     var memory = WorkingMemory(query: "test")
     for i in 0..<10 {
       memory.addObservation(StepObservation(
-        tool: "bash", outcome: "ok", keyFact: "step \(i)"
+        tool: "bash", outcome: .ok, keyFact: "step \(i)"
       ))
     }
     #expect(memory.observations.count == 5)
@@ -84,7 +84,7 @@ struct WorkingMemoryTests {
   @Test("didSucceed returns false when all observations are errors")
   func didSucceedAllErrors() {
     var memory = WorkingMemory(query: "test")
-    memory.addObservation(StepObservation(tool: "read", outcome: "error", keyFact: "file not found"))
+    memory.addObservation(StepObservation(tool: "read", outcome: .error, keyFact: "file not found"))
     memory.addError("Step 1: file not found")
     #expect(!memory.didSucceed)
   }
@@ -92,24 +92,24 @@ struct WorkingMemoryTests {
   @Test("didSucceed returns true when last observation is ok and no errors")
   func didSucceedHappy() {
     var memory = WorkingMemory(query: "test")
-    memory.addObservation(StepObservation(tool: "write", outcome: "ok", keyFact: "written file"))
+    memory.addObservation(StepObservation(tool: "write", outcome: .ok, keyFact: "written file"))
     #expect(memory.didSucceed)
   }
 
   @Test("didSucceed returns true when errors exist but last observation is ok")
   func didSucceedRecovered() {
     var memory = WorkingMemory(query: "test")
-    memory.addObservation(StepObservation(tool: "read", outcome: "error", keyFact: "not found"))
+    memory.addObservation(StepObservation(tool: "read", outcome: .error, keyFact: "not found"))
     memory.addError("Step 1 failed")
-    memory.addObservation(StepObservation(tool: "write", outcome: "ok", keyFact: "created file"))
+    memory.addObservation(StepObservation(tool: "write", outcome: .ok, keyFact: "created file"))
     #expect(memory.didSucceed)
   }
 
   @Test("didSucceed returns false when last observation is error despite earlier success")
   func didSucceedEndedBadly() {
     var memory = WorkingMemory(query: "test")
-    memory.addObservation(StepObservation(tool: "write", outcome: "ok", keyFact: "written"))
-    memory.addObservation(StepObservation(tool: "bash", outcome: "error", keyFact: "build failed"))
+    memory.addObservation(StepObservation(tool: "write", outcome: .ok, keyFact: "written"))
+    memory.addObservation(StepObservation(tool: "bash", outcome: .error, keyFact: "build failed"))
     memory.addError("Build failed")
     #expect(!memory.didSucceed)
   }
@@ -133,7 +133,7 @@ struct WorkingMemoryTests {
     )
     for i in 0..<5 {
       memory.addObservation(StepObservation(
-        tool: "edit", outcome: "ok", keyFact: "updated function \(i)"
+        tool: "edit", outcome: .ok, keyFact: "updated function \(i)"
       ))
     }
 

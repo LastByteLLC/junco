@@ -748,7 +748,7 @@ struct Junco: AsyncParsableCommand {
     if !mem.observations.isEmpty {
       Terminal.header("Results")
       for obs in mem.observations {
-        let icon = obs.outcome == "ok" ? Style.ok : Style.err
+        let icon = obs.outcome == .ok ? Style.ok : Style.err
         Terminal.line("  [\(icon)] \(Style.dim(obs.tool)): \(obs.keyFact)")
       }
     }

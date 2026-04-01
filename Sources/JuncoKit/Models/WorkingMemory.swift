@@ -49,8 +49,8 @@ public struct WorkingMemory: Sendable {
   /// Deterministic success check — does not rely on AFM's judgment.
   /// Returns true only if at least one step succeeded and no unresolved errors remain.
   public var didSucceed: Bool {
-    guard observations.contains(where: { $0.outcome == "ok" }) else { return false }
-    return errors.isEmpty || observations.last?.outcome == "ok"
+    guard observations.contains(where: { $0.outcome == .ok }) else { return false }
+    return errors.isEmpty || observations.last?.outcome == .ok
   }
 
   // MARK: - Compact serialization for prompt injection
@@ -89,7 +89,7 @@ public struct WorkingMemory: Sendable {
     // Last 2 observations only
     let recentObs = observations.suffix(2)
     for obs in recentObs {
-      parts.append("[\(obs.tool)] \(obs.outcome): \(obs.keyFact)")
+      parts.append("[\(obs.tool)] \(obs.outcome.rawValue): \(obs.keyFact)")
     }
 
     if !errors.isEmpty {
@@ -144,12 +144,12 @@ public struct WorkingMemory: Sendable {
 public struct StepObservation: Sendable {
   /// Which tool was used.
   public let tool: String
-  /// One-line outcome (success/failure/partial).
-  public let outcome: String
+  /// Typed outcome.
+  public let outcome: StepOutcome
   /// The single most important fact from the output.
   public let keyFact: String
 
-  public init(tool: String, outcome: String, keyFact: String) {
+  public init(tool: String, outcome: StepOutcome, keyFact: String) {
     self.tool = tool
     self.outcome = outcome
     self.keyFact = keyFact

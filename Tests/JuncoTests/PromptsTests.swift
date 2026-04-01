@@ -13,14 +13,6 @@ struct PromptsTests {
     }
   }
 
-  @Test("execute system prompt includes all tools including create")
-  func executeToolList() {
-    let system = Prompts.executeSystem()
-    for tool in ["bash", "read", "create", "write", "edit", "patch", "search"] {
-      #expect(system.contains(tool), "Execute prompt missing tool: \(tool)")
-    }
-  }
-
   @Test("plan system prompt guides create for new files")
   func planCreateGuidance() {
     let system = Prompts.planSystem
@@ -28,10 +20,11 @@ struct PromptsTests {
     #expect(system.contains("use create"))
   }
 
-  @Test("execute system prompt includes domain hint when provided")
-  func domainHint() {
-    let system = Prompts.executeSystem(domainHint: "Use Swift conventions")
-    #expect(system.contains("Use Swift conventions"))
+  @Test("ToolName enum covers all plan tools")
+  func toolNameCoverage() {
+    let allTools: [ToolName] = [.bash, .read, .create, .write, .edit, .patch, .search]
+    #expect(allTools.count == 7)
+    #expect(ToolName.allCases.count == 7)
   }
 
   @Test("classify prompt includes query and file hints")

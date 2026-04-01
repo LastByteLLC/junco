@@ -78,3 +78,52 @@ public struct StageBudget: Sendable {
     self.generation = generation
   }
 }
+
+// MARK: - Priority-Weighted Prompt Packing
+
+/// A labeled section of prompt content with a priority for budget allocation.
+/// Higher priority sections are included first when packing into a token budget.
+public struct PromptSection: Sendable {
+  public let label: String
+  public let content: String
+  /// Higher = included first. Typical range: 0-100.
+  public let priority: Int
+
+  public init(label: String, content: String, priority: Int) {
+    self.label = label
+    self.content = content
+    self.priority = priority
+  }
+}
+
+extension TokenBudget {
+  /// Pack prompt sections into a budget, prioritizing higher-priority sections.
+  /// Sections are included in full if possible; the last section that exceeds
+  /// the remaining budget is truncated rather than omitted entirely.
+  public static func packSections(_ sections: [PromptSection], budget: Int) -> String {
+    guard !sections.isEmpty else { return "" }
+
+    let sorted = sections
+      .filter { !$0.content.isEmpty }
+      .sorted { $0.priority > $1.priority }
+
+    var packed = ""
+    var used = 0
+
+    for section in sorted {
+      let tokens = estimate(section.content)
+      if used + tokens <= budget {
+        packed += "\(section.label):\n\(section.content)\n\n"
+        used += tokens
+      } else {
+        let remaining = budget - used
+        if remaining > 50 {
+          packed += "\(section.label):\n\(truncate(section.content, toTokens: remaining))\n\n"
+        }
+        break  // Budget exhausted
+      }
+    }
+
+    return packed
+  }
+}

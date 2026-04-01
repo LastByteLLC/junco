@@ -103,13 +103,59 @@ public struct TemplateRenderer: Sendable {
 
   /// Detect if a file path should use template-based generation.
   public func shouldUseTemplate(filePath: String) -> Bool {
+    templateSystemPrompt(for: filePath) != nil
+  }
+
+  /// Returns the system prompt for template-based generation, or nil if not a template file.
+  /// Used by `resolveTemplate` to determine intent and render.
+  public func templateSystemPrompt(for filePath: String) -> String? {
     let name = (filePath as NSString).lastPathComponent.lowercased()
-    return name == "package.swift"
-      || name.hasSuffix(".entitlements")
-      || name == "info.plist"
-      || name.hasSuffix(".xcprivacy")
-      || name == ".gitignore"
-      || name.hasSuffix(".xcconfig")
+    if name.hasSuffix(".entitlements") {
+      return "Determine which entitlements this app needs based on the user's request."
+    } else if name.hasSuffix("package.swift") {
+      return "Determine the SPM package configuration: name, targets, dependencies, platforms."
+    } else if name == "info.plist" || name.hasSuffix(".plist") {
+      return "Determine the Info.plist configuration: display name, bundle ID, privacy permissions needed."
+    } else if name.hasSuffix(".xcprivacy") {
+      return "Determine the privacy manifest: accessed API types, reasons, tracking, collected data."
+    } else if name == ".gitignore" {
+      return "Determine which patterns to ignore. For Swift projects, include swiftPackage and xcode. Always include macOS."
+    } else if name.hasSuffix(".xcconfig") {
+      return "Generate xcconfig build settings as KEY = VALUE pairs."
+    }
+    return nil
+  }
+
+  /// Generate template content by dispatching to the appropriate intent type and renderer.
+  /// Returns nil if the file path doesn't match any template.
+  public func resolveTemplate(
+    filePath: String,
+    prompt: String,
+    adapter: AFMAdapter
+  ) async throws -> String? {
+    let name = (filePath as NSString).lastPathComponent.lowercased()
+    guard let system = templateSystemPrompt(for: filePath) else { return nil }
+
+    if name.hasSuffix(".entitlements") {
+      let intent = try await adapter.generateStructured(prompt: prompt, system: system, as: EntitlementsIntent.self)
+      return renderEntitlements(intent)
+    } else if name.hasSuffix("package.swift") {
+      let intent = try await adapter.generateStructured(prompt: prompt, system: system, as: PackageIntent.self)
+      return renderPackage(intent)
+    } else if name == "info.plist" || name.hasSuffix(".plist") {
+      let intent = try await adapter.generateStructured(prompt: prompt, system: system, as: PlistIntent.self)
+      return renderPlist(intent)
+    } else if name.hasSuffix(".xcprivacy") {
+      let intent = try await adapter.generateStructured(prompt: prompt, system: system, as: PrivacyManifestIntent.self)
+      return renderPrivacyManifest(intent)
+    } else if name == ".gitignore" {
+      let intent = try await adapter.generateStructured(prompt: prompt, system: system, as: GitignoreIntent.self)
+      return renderGitignore(intent)
+    } else if name.hasSuffix(".xcconfig") {
+      let intent = try await adapter.generateStructured(prompt: prompt, system: system, as: XcconfigIntent.self)
+      return renderXcconfig(intent)
+    }
+    return nil
   }
 
   // MARK: - Entitlements

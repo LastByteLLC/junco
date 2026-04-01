@@ -68,45 +68,6 @@ public enum Prompts {
     """
   }
 
-  // MARK: - Execute
-
-  public static func executeSystem(domainHint: String? = nil) -> String {
-    var sys = """
-      You are a coding agent. Execute the current step by choosing a tool. \
-      Tools: \(toolList). \
-      Be precise. Output only the action.
-      """
-    if let hint = domainHint {
-      sys += " \(hint)"
-    }
-    return sys
-  }
-
-  public static func executePrompt(
-    step: PlanStep,
-    memory: String,
-    codeContext: String,
-    reflection: String?
-  ) -> String {
-    var prompt = """
-      Step: \(step.instruction)
-      Tool hint: \(step.tool) | Target: \(step.target)
-
-      Context:
-      \(memory)
-      """
-
-    if !codeContext.isEmpty {
-      prompt += "\n\nCode:\n\(codeContext)"
-    }
-
-    if let reflection, !reflection.isEmpty {
-      prompt += "\n\nPast experience: \(reflection)"
-    }
-
-    return prompt
-  }
-
   // MARK: - Observe
 
   public static let observeSystem = """

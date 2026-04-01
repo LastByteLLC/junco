@@ -31,15 +31,15 @@ struct GenerableTypesTests {
     let data = try JSONEncoder().encode(plan)
     let decoded = try JSONDecoder().decode(AgentPlan.self, from: data)
     #expect(decoded.steps.count == 2)
-    #expect(decoded.steps[0].tool == "read")
+    #expect(decoded.steps[0].toolName == .read)
   }
 
-  @Test("ToolChoice round-trips")
-  func toolChoiceCodable() throws {
-    let choice = ToolChoice(tool: "bash", reasoning: "need to list files")
-    let data = try JSONEncoder().encode(choice)
-    let decoded = try JSONDecoder().decode(ToolChoice.self, from: data)
-    #expect(decoded.tool == "bash")
+  @Test("ToolName round-trips via JSON")
+  func toolNameCodable() throws {
+    let step = PlanStep(instruction: "list files", tool: "bash", target: ".")
+    let data = try JSONEncoder().encode(step)
+    let decoded = try JSONDecoder().decode(PlanStep.self, from: data)
+    #expect(decoded.toolName == .bash)
   }
 
   @Test("EditParams round-trips")

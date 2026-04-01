@@ -120,7 +120,7 @@ public actor Orchestrator {
     // word is a real executable (not a task keyword), run it directly.
     if let shellResult = await detectAndRunShellCommand(query) {
       memory.addObservation(StepObservation(
-        tool: "bash", outcome: shellResult.exitCode == 0 ? "ok" : "error",
+        tool: "bash", outcome: shellResult.exitCode == 0 ? .ok : .error,
         keyFact: String(shellResult.formatted(maxTokens: 120).prefix(120))
       ))
       return RunResult(memory: memory, reflection: AgentReflection(
@@ -234,7 +234,7 @@ public actor Orchestrator {
 
           // Final validation
           if let finalError = validatorRegistry.validate(code: content, filePath: path) {
-            memory.addObservation(StepObservation(tool: "create", outcome: "error", keyFact: finalError))
+            memory.addObservation(StepObservation(tool: "create", outcome: .error, keyFact: finalError))
             memory.addError(finalError)
             continue
           }
@@ -246,7 +246,7 @@ public actor Orchestrator {
           metrics.filesModified += 1
           try files.write(path: path, content: content)
           lastDiffs.append(diffPreview.diffWrite(filePath: path, existingContent: nil, newContent: content))
-          memory.addObservation(StepObservation(tool: "create", outcome: "ok", keyFact: "Created \(path) (\(content.count) chars)"))
+          memory.addObservation(StepObservation(tool: "create", outcome: .ok, keyFact: "Created \(path) (\(content.count) chars)"))
 
           // Post-write verification: check URLs were preserved
           for url in urls {
@@ -325,9 +325,10 @@ public actor Orchestrator {
       // Loop detection
       if lastActions.count >= 2 {
         let prev = lastActions.suffix(2)
-        if prev.allSatisfy({ $0.tool == step.tool && $0.target == step.target }) {
+        let stepTool = step.tool
+        if prev.allSatisfy({ $0.tool == stepTool && $0.target == step.target }) {
           debug("LOOP detected at step \(index + 1) — breaking")
-          memory.addError("Loop detected: repeated \(step.tool) on \(step.target)")
+          memory.addError("Loop detected: repeated \(stepTool) on \(step.target)")
           break
         }
       }
@@ -344,10 +345,10 @@ public actor Orchestrator {
           if ["create", "write", "edit", "patch"].contains(observation.tool) {
             filesWereModified = true
           }
-          debug("EXEC[\(index + 1)] → [\(observation.outcome)] \(observation.tool): \(observation.keyFact)")
+          debug("EXEC[\(index + 1)] → [\(observation.outcome.rawValue)] \(observation.tool): \(observation.keyFact)")
 
           // Check if the step itself reported an error in output
-          if observation.outcome == "error", let handler = callbacks.onStepError, attempt < maxRetries {
+          if observation.outcome == .error, let handler = callbacks.onStepError, attempt < maxRetries {
             let recovery = await handler(index + 1, observation.keyFact)
             switch recovery {
             case .retry:
@@ -364,10 +365,25 @@ public actor Orchestrator {
           }
           break  // Move to next step
 
+        } catch let pipelineError as PipelineError {
+          // Typed pipeline errors — handle based on recoverability
+          debug("EXEC[\(index + 1)] → [PIPELINE ERROR] \(pipelineError)")
+          if pipelineError.isRetryable && attempt < maxRetries {
+            attempt += 1
+            debug("AUTO-RETRY step \(index + 1), attempt \(attempt) (retryable pipeline error)")
+            continue
+          }
+          memory.addError("Step \(index + 1): \(pipelineError)")
+          memory.addObservation(StepObservation(
+            tool: step.tool, outcome: .error, keyFact: "\(pipelineError)"
+          ))
+          lastActions.append((tool: step.tool, target: step.target))
+          break
+
         } catch {
           memory.addError("Step \(index + 1): \(error)")
           memory.addObservation(StepObservation(
-            tool: step.tool, outcome: "error", keyFact: "\(error)"
+            tool: step.tool, outcome: .error, keyFact: "\(error)"
           ))
           lastActions.append((tool: step.tool, target: step.target))
           debug("EXEC[\(index + 1)] → [ERROR] \(error)")
@@ -383,7 +399,6 @@ public actor Orchestrator {
             case .abort:
               debug("ABORT at step \(index + 1)")
               memory.addError("Aborted by user at step \(index + 1)")
-              // Use a labeled break to exit both while and for
               break
             case .skip:
               break
@@ -401,7 +416,7 @@ public actor Orchestrator {
       // Early termination: if step 1 create succeeded for a simple task, skip remaining
       if intent.complexity == "simple" && index == 0 && cappedSteps.count > 1 {
         if let lastObs = memory.observations.last,
-           lastObs.tool == "create" && lastObs.outcome == "ok" {
+           lastObs.tool == "create" && lastObs.outcome == .ok {
           debug("EARLY EXIT: simple create succeeded on step 1, skipping \(cappedSteps.count - 1) remaining steps")
           break
         }
@@ -620,11 +635,57 @@ public actor Orchestrator {
   private func discoverStrategy(
     query: String, intent: AgentIntent, memory: inout WorkingMemory
   ) async throws -> AgentStrategy {
+    // Deterministic strategy for common intent/complexity combinations.
+    // Only fall through to LLM for unusual or complex cases.
+    if let fast = deterministicStrategy(intent: intent) {
+      debug("STRATEGY → deterministic: \(fast.approach)")
+      return fast
+    }
+
     let prompt = Prompts.strategyPrompt(query: query, intent: intent)
     memory.trackCall(estimatedTokens: TokenBudget.strategy.total)
     return try await adapter.generateStructured(
       prompt: prompt, system: Prompts.strategySystem, as: AgentStrategy.self
     )
+  }
+
+  /// Maps common intent types to strategies without an LLM call.
+  /// Returns nil for complex or unusual tasks that need LLM reasoning.
+  private func deterministicStrategy(intent: AgentIntent) -> AgentStrategy? {
+    switch intent.taskType {
+    case "fix":
+      return AgentStrategy(
+        approach: "read-then-edit",
+        startingPoints: intent.targets,
+        risk: "Ensure fix doesn't break other code"
+      )
+    case "add" where intent.complexity == "simple":
+      return AgentStrategy(
+        approach: "decompose",
+        startingPoints: intent.targets,
+        risk: "Follow project conventions"
+      )
+    case "explain", "explore":
+      return AgentStrategy(
+        approach: "search-then-plan",
+        startingPoints: intent.targets,
+        risk: "none"
+      )
+    case "refactor":
+      return AgentStrategy(
+        approach: "read-then-edit",
+        startingPoints: intent.targets,
+        risk: "Preserve existing behavior"
+      )
+    case "test":
+      return AgentStrategy(
+        approach: "test-first",
+        startingPoints: intent.targets,
+        risk: "Test isolation"
+      )
+    default:
+      return nil
+    }
   }
 
   private func plan(
@@ -673,39 +734,18 @@ public actor Orchestrator {
         budget: 600, preferredFiles: Array(memory.touchedFiles)
       )
     }
-    let memoryStr = memory.compactDescription(tokenBudget: 200)
-    let reflectionHint = reflectionStore.formatForPrompt(query: memory.query)
+    // Use tool from plan directly — no redundant ToolChoice LLM call.
+    // The plan already specified which tool to use; re-asking wastes a call.
+    let toolName = step.toolName
+    debug("  tool: \(toolName.rawValue) (from plan)")
 
-    // Inject micro-skill hints + scratchpad
-    let skillHint = skillLoader.skillHints(
-      domain: memory.intent?.domain ?? domain.kind.rawValue,
-      taskType: memory.intent?.taskType ?? "fix"
-    )
-    let scratchpadCtx = scratchpad.promptContext(budget: 50)
-
-    let prompt = Prompts.executePrompt(
-      step: step, memory: memoryStr, codeContext: codeContext, reflection: reflectionHint
-    )
-
-    // Build system prompt with all injected context
-    var systemPrompt = Prompts.executeSystem(domainHint: domain.promptHint)
-    if let hint = skillHint { systemPrompt += " " + hint }
-    if let notes = scratchpadCtx { systemPrompt += " " + notes }
-
-    // Phase 1: Choose tool (TokenGuard applied automatically in adapter)
-    memory.trackCall(estimatedTokens: 600)
-    let choice = try await adapter.generateStructured(
-      prompt: prompt, system: systemPrompt, as: ToolChoice.self
-    )
-    debug("  tool choice: \(choice.tool) — \(choice.reasoning)")
-
-    // Phase 2: Resolve and execute (with fallback on context overflow)
+    // Resolve tool parameters and execute (with fallback on context overflow)
     let action: ToolAction
     do {
       action = try await resolveToolAction(
-        tool: choice.tool, step: step, codeContext: codeContext, memory: &memory
+        tool: toolName, step: step, codeContext: codeContext, memory: &memory
       )
-    } catch let error as LLMError where choice.tool == "create" {
+    } catch let error as LLMError where toolName == .create {
       if case .contextOverflow = error {
         if step.target.hasSuffix(".swift") {
           // Swift files: two-phase generation (skeleton + fill)
@@ -737,18 +777,18 @@ public actor Orchestrator {
 
     let toolOutput = await executeToolSafe(action: action, memory: &memory)
 
-    return compressObservation(tool: choice.tool, output: toolOutput, step: step.instruction)
+    return compressObservation(tool: toolName.rawValue, output: toolOutput, step: step.instruction)
   }
 
   private func resolveToolAction(
-    tool: String, step: PlanStep, codeContext: String,
+    tool: ToolName, step: PlanStep, codeContext: String,
     memory: inout WorkingMemory
   ) async throws -> ToolAction {
     let base = "Step: \(step.instruction)\nTarget: \(step.target)\nProject root: \(workingDirectory)"
     memory.trackCall(estimatedTokens: 600)
 
-    switch tool.lowercased() {
-    case "bash":
+    switch tool {
+    case .bash:
       let p = try await adapter.generateStructured(
         prompt: base,
         system: "Generate a bash command. Working directory: \(workingDirectory). Use relative paths.",
@@ -756,7 +796,7 @@ public actor Orchestrator {
       )
       return .bash(command: p.command)
 
-    case "read":
+    case .read:
       if !step.target.isEmpty, files.exists(step.target) {
         return .read(path: step.target)
       }
@@ -765,7 +805,7 @@ public actor Orchestrator {
       )
       return .read(path: p.filePath)
 
-    case "create":
+    case .create:
       let createTarget = step.target.isEmpty ? "" : step.target
       let createTargetLower = createTarget.lowercased()
 
@@ -774,54 +814,10 @@ public actor Orchestrator {
       if templateRenderer.shouldUseTemplate(filePath: createTarget) {
         let intentPrompt = "\(base)\nUser request: \(TokenBudget.truncate(memory.query, toTokens: 200))"
         memory.trackCall(estimatedTokens: 600)
-
-        if createTargetLower.hasSuffix(".entitlements") {
-          let intent = try await adapter.generateStructured(
-            prompt: intentPrompt,
-            system: "Determine which entitlements this app needs based on the user's request.",
-            as: EntitlementsIntent.self
-          )
-          return .create(path: createTarget, content: templateRenderer.renderEntitlements(intent))
-
-        } else if createTargetLower.hasSuffix("package.swift") {
-          let intent = try await adapter.generateStructured(
-            prompt: intentPrompt,
-            system: "Determine the SPM package configuration: name, targets, dependencies, platforms.",
-            as: PackageIntent.self
-          )
-          return .create(path: createTarget, content: templateRenderer.renderPackage(intent))
-
-        } else if createTargetLower.hasSuffix("info.plist") || createTargetLower.hasSuffix(".plist") {
-          let intent = try await adapter.generateStructured(
-            prompt: intentPrompt,
-            system: "Determine the Info.plist configuration: display name, bundle ID, privacy permissions needed.",
-            as: PlistIntent.self
-          )
-          return .create(path: createTarget, content: templateRenderer.renderPlist(intent))
-
-        } else if createTargetLower.hasSuffix(".xcprivacy") {
-          let intent = try await adapter.generateStructured(
-            prompt: intentPrompt,
-            system: "Determine the privacy manifest: accessed API types, reasons, tracking, collected data.",
-            as: PrivacyManifestIntent.self
-          )
-          return .create(path: createTarget, content: templateRenderer.renderPrivacyManifest(intent))
-
-        } else if createTargetLower == ".gitignore" {
-          let intent = try await adapter.generateStructured(
-            prompt: intentPrompt,
-            system: "Determine which patterns to ignore. For Swift projects, include swiftPackage and xcode. Always include macOS.",
-            as: GitignoreIntent.self
-          )
-          return .create(path: createTarget, content: templateRenderer.renderGitignore(intent))
-
-        } else if createTargetLower.hasSuffix(".xcconfig") {
-          let intent = try await adapter.generateStructured(
-            prompt: intentPrompt,
-            system: "Generate xcconfig build settings as KEY = VALUE pairs.",
-            as: XcconfigIntent.self
-          )
-          return .create(path: createTarget, content: templateRenderer.renderXcconfig(intent))
+        if let rendered = try await templateRenderer.resolveTemplate(
+          filePath: createTarget, prompt: intentPrompt, adapter: adapter
+        ) {
+          return .create(path: createTarget, content: rendered)
         }
       }
 
@@ -849,7 +845,7 @@ public actor Orchestrator {
       let path = createTarget.isEmpty ? createTarget : createTarget
       return .create(path: path, content: content)
 
-    case "write":
+    case .write:
       let writeURLs = Self.extractURLs(memory.query)
       let writeURLHint = writeURLs.isEmpty ? "" : "\nIMPORTANT: Use these exact URLs (do not substitute): \(writeURLs.joined(separator: ", "))"
       let p = try await adapter.generateStructured(
@@ -860,17 +856,21 @@ public actor Orchestrator {
       let writePath = step.target.isEmpty ? p.filePath : step.target
       return .write(path: writePath, content: p.content)
 
-    case "edit":
-      var editSystem = "Specify exact text to find and its replacement. Find text must match the file exactly. Use a full line or block, not a single word."
-      if step.target.hasSuffix(".swift") {
-        let skillHint = skillLoader.skillHints(
-          domain: memory.intent?.domain ?? "swift",
-          taskType: memory.intent?.taskType ?? "fix",
-          budget: 100
-        )
-        if let hint = skillHint { editSystem += " " + hint }
-      }
-      let editPrompt = "\(base)\nRequest: \(TokenBudget.truncate(memory.query, toTokens: 100))\n\nFile:\n\(TokenBudget.truncate(codeContext, toTokens: 800))"
+    case .edit:
+      let editSystem = "Specify exact text to find and its replacement. Find text must match the file exactly. Use a full line or block, not a single word."
+      // Priority-weighted prompt: file content is most critical, then request, then hints
+      let reflectionHint = reflectionStore.formatForPrompt(query: memory.query) ?? ""
+      let skillHint = step.target.hasSuffix(".swift")
+        ? (skillLoader.skillHints(domain: memory.intent?.domain ?? "swift", taskType: memory.intent?.taskType ?? "fix", budget: 100) ?? "")
+        : ""
+      let editBudget = TokenBudget.contextWindow - TokenBudget.estimate(editSystem) - 150 - 400
+      let editPrompt = base + "\nRequest: " + TokenBudget.truncate(memory.query, toTokens: 100) + "\n\n"
+        + TokenBudget.packSections([
+          PromptSection(label: "File", content: codeContext, priority: 90),
+          PromptSection(label: "Memory", content: memory.compactDescription(tokenBudget: 150), priority: 70),
+          PromptSection(label: "Past experience", content: reflectionHint, priority: 30),
+          PromptSection(label: "Hints", content: skillHint, priority: 20),
+        ], budget: editBudget)
       let editInputEst = TokenBudget.estimate(editPrompt) + TokenBudget.estimate(editSystem) + 150
       let editMaxOutput = max(400, TokenBudget.contextWindow - editInputEst - 100)
       let p = try await adapter.generateStructured(
@@ -882,7 +882,7 @@ public actor Orchestrator {
       let editPath = step.target.isEmpty ? p.filePath : step.target
       return .edit(path: editPath, find: p.find, replace: p.replace)
 
-    case "patch":
+    case .patch:
       let p = try await adapter.generateStructured(
         prompt: "\(base)\n\nFile content:\n\(codeContext)",
         system: "Generate a unified diff patch for this file. Use +/- line prefixes and @@ hunk headers.",
@@ -890,14 +890,13 @@ public actor Orchestrator {
       )
       return .patch(path: p.filePath, diff: p.patch)
 
-    case "search":
+    case .search:
       let p = try await adapter.generateStructured(
         prompt: base, system: "Specify a grep pattern.", as: SearchParams.self
       )
       return .search(pattern: p.pattern)
 
-    default:
-      return .bash(command: "echo 'Unknown tool: \(tool)'")
+    // Switch is exhaustive — no unknown tools possible with ToolName enum
     }
   }
 
@@ -956,6 +955,56 @@ public actor Orchestrator {
     return result
   }
 
+  // MARK: - Validation + Fix Helper
+
+  /// Lint, validate, and retry-fix code up to maxValidationRetries.
+  /// Used by both create and write tool execution paths.
+  /// Returns the (possibly fixed) content, or nil with an error message if validation still fails.
+  private func validateAndFix(
+    content: String,
+    filePath: String,
+    memory: inout WorkingMemory
+  ) async throws -> (content: String, error: String?) {
+    var content = linter.lint(content: content, filePath: filePath)
+
+    var retries = 0
+    while retries < Config.maxValidationRetries {
+      let feedback = jsValidator.feedbackForLLM(code: content, filePath: filePath)
+        ?? swiftValidator.feedbackForLLM(code: content, filePath: filePath)
+      guard let error = feedback else { break }
+      retries += 1
+
+      if let region = errorExtractor.extract(content: content, errorMessage: error) {
+        debug("Targeted retry \(retries) for \(filePath) (lines \(region.startLine)-\(region.endLine)): \(error)")
+        memory.trackCall(estimatedTokens: 500)
+        let fixed = try await adapter.generateStructured(
+          prompt: "Fix this code.\nError: \(String(error.prefix(200)))\n\nCode:\n\(region.text)",
+          system: "Fix ONLY this code region. Return the corrected code.",
+          as: CodeFragment.self
+        )
+        content = errorExtractor.splice(original: content, region: region, fix: fixed.content)
+      } else {
+        debug("Full retry \(retries) for \(filePath): \(error)")
+        memory.trackCall(estimatedTokens: 800)
+        let truncatedCode = TokenBudget.truncate(content, toTokens: 800)
+        let fixed = try await adapter.generateStructured(
+          prompt: "Fix this code.\nError: \(String(error.prefix(200)))\n\nCode:\n\(truncatedCode)",
+          system: "Fix the error. Return the complete corrected file.",
+          as: CreateParams.self
+        )
+        content = fixed.content
+      }
+      content = linter.lint(content: content, filePath: filePath)
+    }
+
+    if let finalError = validatorRegistry.validate(code: content, filePath: filePath) {
+      debug("Validation failed after \(retries) retries for \(filePath): \(finalError)")
+      return (content, "VALIDATION FAILED: \(finalError)")
+    }
+
+    return (content, nil)
+  }
+
   // MARK: - Build-Fix Reflexion Loop
 
   /// After all execute steps, run a build and attempt to fix errors.
@@ -1008,6 +1057,18 @@ public actor Orchestrator {
   }
 
   private func reflect(memory: inout WorkingMemory) async throws -> AgentReflection {
+    // Skip LLM reflection on clean success — saves 1 call.
+    // Only use LLM for failures/partial success where insight is valuable.
+    if memory.didSucceed && memory.errors.isEmpty {
+      let taskType = memory.intent?.taskType ?? "Task"
+      return AgentReflection(
+        taskSummary: "\(taskType) completed",
+        insight: "All \(memory.observations.count) steps succeeded.",
+        improvement: "",
+        succeeded: true
+      )
+    }
+
     let prompt = Prompts.reflectPrompt(memory: memory)
     memory.trackCall(estimatedTokens: TokenBudget.reflect.total)
     var reflection = try await adapter.generateStructured(
@@ -1054,6 +1115,12 @@ public actor Orchestrator {
   }
 
   private func executeTool(action: ToolAction, memory: inout WorkingMemory) async throws -> String {
+    // Centralized permission check for file-modifying tools
+    if action.requiresPermission, let target = action.targetPath {
+      let decision = await askPermission(tool: action.toolLabel, target: target, detail: action.permissionDetail)
+      guard decision != .deny else { return "DENIED: \(action.toolLabel) \(target)" }
+    }
+
     switch action {
     case .bash(let command):
       metrics.bashCommandsRun += 1
@@ -1069,51 +1136,11 @@ public actor Orchestrator {
       if files.exists(path) {
         return "ERROR: File already exists: \(path). Use edit to modify existing files."
       }
-      let createDecision = await askPermission(tool: "create", target: path, detail: "\(content.count) chars")
-      guard createDecision != .deny else { return "DENIED: create \(path)" }
-
-      // Step 1: Deterministic lint (instant, no LLM call)
-      content = linter.lint(content: content, filePath: path)
-
-      // Step 2: Syntax validation with TARGETED retry
-      var retries = 0
-      while retries < Config.maxValidationRetries {
-        let feedback = jsValidator.feedbackForLLM(code: content, filePath: path)
-          ?? swiftValidator.feedbackForLLM(code: content, filePath: path)
-        guard let error = feedback else { break }
-        retries += 1
-
-        // Try targeted fix: extract the error region, fix just that part
-        if let region = errorExtractor.extract(content: content, errorMessage: error) {
-          debug("Targeted retry \(retries) for \(path) (lines \(region.startLine)-\(region.endLine)): \(error)")
-          memory.trackCall(estimatedTokens: 500)
-          let fixPrompt = "Fix this code.\nError: \(String(error.prefix(200)))\n\nCode:\n\(region.text)"
-          let fixed = try await adapter.generateStructured(
-            prompt: fixPrompt,
-            system: "Fix ONLY this code region. Return the corrected code.",
-            as: CodeFragment.self
-          )
-          content = errorExtractor.splice(original: content, region: region, fix: fixed.content)
-        } else {
-          // Can't isolate region — fall back to full-file retry (truncated)
-          debug("Full retry \(retries) for \(path): \(error)")
-          memory.trackCall(estimatedTokens: 800)
-          let truncatedCode = TokenBudget.truncate(content, toTokens: 800)
-          let fixed = try await adapter.generateStructured(
-            prompt: "Fix this code.\nError: \(String(error.prefix(200)))\n\nCode:\n\(truncatedCode)",
-            system: "Fix the error. Return the complete corrected file.",
-            as: CreateParams.self
-          )
-          content = fixed.content
-        }
-        // Re-lint after every fix
-        content = linter.lint(content: content, filePath: path)
-      }
-
-      // Final validation check
-      if let finalError = validatorRegistry.validate(code: content, filePath: path) {
-        debug("Validation failed after \(retries) retries for \(path): \(finalError)")
-        return "VALIDATION FAILED: \(finalError)"
+      // Lint → validate → targeted retry
+      let validated = try await validateAndFix(content: content, filePath: path, memory: &memory)
+      content = validated.content
+      if let validationError = validated.error {
+        return validationError
       }
 
       memory.touch(path)
@@ -1129,44 +1156,11 @@ public actor Orchestrator {
       return "Created \(path) (\(content.count) chars)"
 
     case .write(let path, var content):
-      let decision = await askPermission(tool: "write", target: path, detail: "\(content.count) chars")
-      guard decision != .deny else { return "DENIED: write to \(path)" }
-
       // Lint → validate → targeted retry (same pipeline as create)
-      content = linter.lint(content: content, filePath: path)
-
-      var writeRetries = 0
-      while writeRetries < Config.maxValidationRetries {
-        let feedback = jsValidator.feedbackForLLM(code: content, filePath: path)
-          ?? swiftValidator.feedbackForLLM(code: content, filePath: path)
-        guard let error = feedback else { break }
-        writeRetries += 1
-
-        if let region = errorExtractor.extract(content: content, errorMessage: error) {
-          debug("Targeted retry \(writeRetries) for \(path) (lines \(region.startLine)-\(region.endLine)): \(error)")
-          memory.trackCall(estimatedTokens: 500)
-          let fixed = try await adapter.generateStructured(
-            prompt: "Fix this code.\nError: \(String(error.prefix(200)))\n\nCode:\n\(region.text)",
-            system: "Fix ONLY this code region. Return the corrected code.",
-            as: CodeFragment.self
-          )
-          content = errorExtractor.splice(original: content, region: region, fix: fixed.content)
-        } else {
-          debug("Full retry \(writeRetries) for \(path): \(error)")
-          memory.trackCall(estimatedTokens: 800)
-          let truncatedCode = TokenBudget.truncate(content, toTokens: 800)
-          let fixed = try await adapter.generateStructured(
-            prompt: "Fix this code.\nError: \(String(error.prefix(200)))\n\nCode:\n\(truncatedCode)",
-            system: "Fix the error. Return the complete corrected file.",
-            as: WriteParams.self
-          )
-          content = fixed.content
-        }
-        content = linter.lint(content: content, filePath: path)
-      }
-      if let finalError = validatorRegistry.validate(code: content, filePath: path) {
-        debug("Validation failed after \(writeRetries) retries for \(path): \(finalError)")
-        return "VALIDATION FAILED: \(finalError)"
+      let writeValidated = try await validateAndFix(content: content, filePath: path, memory: &memory)
+      content = writeValidated.content
+      if let validationError = writeValidated.error {
+        return validationError
       }
 
       let existing = try? files.read(path: path, maxTokens: 2000)
@@ -1179,9 +1173,6 @@ public actor Orchestrator {
       return "Written \(path) (\(content.count) chars)"
 
     case .edit(let path, let find, let replace):
-      let decision = await askPermission(tool: "edit", target: path, detail: "replacing \(find.count) chars")
-      guard decision != .deny else { return "DENIED: edit \(path)" }
-
       // Capture before content for diff
       let before = try? files.read(path: path, maxTokens: 2000)
       memory.touch(path)
@@ -1211,9 +1202,6 @@ public actor Orchestrator {
       return "Edited \(path)"
 
     case .patch(let path, let diff):
-      let decision = await askPermission(tool: "patch", target: path, detail: "apply unified diff")
-      guard decision != .deny else { return "DENIED: patch \(path)" }
-
       let before = try? files.read(path: path, maxTokens: 2000)
       memory.touch(path)
       metrics.filesModified += 1
@@ -1239,7 +1227,16 @@ public actor Orchestrator {
 
   private func compressObservation(tool: String, output: String, step: String) -> StepObservation {
     let lines = output.split(separator: "\n", omittingEmptySubsequences: true)
-    let outcome = (output.contains("ERROR") || output.contains("DENIED") || output.contains("FAILED")) ? "error" : "ok"
+    let outcome: StepOutcome
+    if output.hasPrefix("DENIED") {
+      outcome = .denied
+    } else if output.hasPrefix("VALIDATION FAILED") {
+      outcome = .validationFailed
+    } else if output.contains("ERROR") || output.contains("FAILED") {
+      outcome = .error
+    } else {
+      outcome = .ok
+    }
     let keyFact = lines.first.map(String.init) ?? "no output"
     return StepObservation(tool: tool, outcome: outcome, keyFact: String(keyFact.prefix(120)))
   }

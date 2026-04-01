@@ -6,6 +6,21 @@
 
 import FoundationModels
 
+// MARK: - Shared Enums
+
+/// Tool names used in plan steps and tool dispatch. Exhaustive — no unknown tools.
+public enum ToolName: String, Sendable, Codable, CaseIterable {
+  case bash, read, create, write, edit, patch, search
+}
+
+/// Outcome of a single tool execution step.
+public enum StepOutcome: String, Sendable, Codable {
+  case ok
+  case error
+  case denied
+  case validationFailed
+}
+
 // MARK: - Stage 1: Intent Classification
 
 @Generable
@@ -48,16 +63,11 @@ public struct PlanStep: Codable, Sendable {
   public var tool: String
 
   public var target: String
-}
 
-// MARK: - Stage 4: Execution (Tool Choice)
-
-@Generable
-public struct ToolChoice: Codable, Sendable {
-  @Guide(description: "bash, read, create, write, edit, patch, or search")
-  public var tool: String
-
-  public var reasoning: String
+  /// Typed tool name, with fallback to .bash for unknown values.
+  public var toolName: ToolName {
+    ToolName(rawValue: tool.lowercased()) ?? .bash
+  }
 }
 
 // MARK: - Stage 4: Execution (Tool Parameters)
@@ -115,6 +125,49 @@ public enum ToolAction: Sendable {
   case edit(path: String, find: String, replace: String)
   case patch(path: String, diff: String)
   case search(pattern: String)
+
+  /// Whether this action modifies files and requires user permission.
+  public var requiresPermission: Bool {
+    switch self {
+    case .create, .write, .edit, .patch: return true
+    case .bash, .read, .search: return false
+    }
+  }
+
+  /// The file path targeted by this action, for permission display.
+  public var targetPath: String? {
+    switch self {
+    case .create(let path, _), .write(let path, _),
+         .edit(let path, _, _), .patch(let path, _):
+      return path
+    case .bash, .read, .search:
+      return nil
+    }
+  }
+
+  /// Human-readable detail for permission prompts.
+  public var permissionDetail: String {
+    switch self {
+    case .create(_, let content): return "\(content.count) chars"
+    case .write(_, let content): return "\(content.count) chars"
+    case .edit(_, let find, _): return "replacing \(find.count) chars"
+    case .patch: return "apply unified diff"
+    case .bash, .read, .search: return ""
+    }
+  }
+
+  /// The tool name string for this action.
+  public var toolLabel: String {
+    switch self {
+    case .bash: return "bash"
+    case .read: return "read"
+    case .create: return "create"
+    case .write: return "write"
+    case .edit: return "edit"
+    case .patch: return "patch"
+    case .search: return "search"
+    }
+  }
 }
 
 // MARK: - Stage 5: Reflection
@@ -148,4 +201,43 @@ public struct CodeSkeleton: Codable, Sendable {
 @Generable
 public struct MethodBody: Codable, Sendable {
   public var implementation: String
+}
+
+// MARK: - Pipeline Errors
+
+/// Typed errors for the agent pipeline, enabling error-specific recovery.
+public enum PipelineError: Error, Sendable {
+  /// AFM returned output that couldn't be deserialized as the requested @Generable type.
+  /// Retryable: AFM's non-determinism may produce valid output on the next attempt.
+  case deserializationFailed(stage: String, type: String)
+
+  /// Input exceeded AFM's context window.
+  /// Retryable with truncated context.
+  case contextOverflow(stage: String)
+
+  /// Generated code failed validation (syntax, linting).
+  /// Retryable with fix prompt.
+  case validationFailed(file: String, error: String)
+
+  /// Build failed after code generation.
+  case buildFailed(output: String)
+
+  /// User denied permission for a tool action.
+  case permissionDenied(tool: String, target: String)
+
+  /// Repeated identical actions detected.
+  case loopDetected(tool: String, target: String)
+
+  /// User aborted the pipeline.
+  case aborted(step: Int)
+
+  /// Whether this error type is worth retrying.
+  public var isRetryable: Bool {
+    switch self {
+    case .deserializationFailed, .contextOverflow, .validationFailed:
+      return true
+    case .buildFailed, .permissionDenied, .loopDetected, .aborted:
+      return false
+    }
+  }
 }
