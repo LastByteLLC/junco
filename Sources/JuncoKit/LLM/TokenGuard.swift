@@ -53,7 +53,8 @@ public struct TokenGuard: Sendable {
     schemaOverhead: Int = 0
   ) async -> (system: String, prompt: String) {
     let contextSize = await adapter.contextSize
-    let budget = contextSize - reserveForGeneration - schemaOverhead
+    let safetyMargin = contextSize * Config.tokenSafetyMarginPercent / 100
+    let budget = contextSize - reserveForGeneration - schemaOverhead - safetyMargin
 
     var currentSystem = system
     var currentPrompt = prompt

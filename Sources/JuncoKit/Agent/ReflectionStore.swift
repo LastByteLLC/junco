@@ -24,6 +24,10 @@ public struct ReflectionStore: Sendable {
   private let storePath: String
   private let maxEntries: Int
 
+  /// Recency decay half-life in days.
+  /// At 14 days, a reflection's recency bonus is halved.
+  public static let recencyHalfLife: Double = 14.0
+
   public init(projectDirectory: String, maxEntries: Int = 100) {
     let juncoDir = (projectDirectory as NSString).appendingPathComponent(".junco")
     self.storePath = (juncoDir as NSString).appendingPathComponent("reflections.jsonl")
@@ -73,8 +77,11 @@ public struct ReflectionStore: Sendable {
         entry.query + " " + entry.reflection.taskSummary + " " + entry.reflection.insight
       )
       let overlap = queryTerms.intersection(entryTerms).count
-      let recencyBonus = min(1.0, 7.0 / max(1, -entry.timestamp.timeIntervalSinceNow / 86400))
-      return (entry, Double(overlap) + recencyBonus * 0.5)
+      // Exponential decay: half-life of 14 days.
+      // 7 days: 0.61, 14 days: 0.37, 28 days: 0.14, 60 days: 0.01
+      let daysSince = max(0, -entry.timestamp.timeIntervalSinceNow / 86400)
+      let decayFactor = exp(-daysSince / Self.recencyHalfLife)
+      return (entry, Double(overlap) * (1.0 + decayFactor))
     }
 
     scored.sort { $0.score > $1.score }
@@ -110,17 +117,19 @@ public struct ReflectionStore: Sendable {
     }
   }
 
-  // MARK: - Auto-Compact
+  // MARK: - Auto-Compact with Distillation
 
-  /// Keep only the most recent `maxEntries` reflections.
+  /// Distill reflections when over capacity.
+  /// Instead of just keeping the last N, clusters by keyword overlap
+  /// and keeps the most recent success + failure per cluster.
   private func autoCompact() throws {
     guard let entries = loadAll(), entries.count > maxEntries else { return }
 
-    let kept = Array(entries.suffix(maxEntries))
+    let distilled = distill(entries)
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
 
-    let lines = kept.compactMap { entry -> String? in
+    let lines = distilled.compactMap { entry -> String? in
       guard let data = try? encoder.encode(entry),
             let line = String(data: data, encoding: .utf8)
       else { return nil }
@@ -129,6 +138,54 @@ public struct ReflectionStore: Sendable {
 
     try lines.joined(separator: "\n").appending("\n")
       .write(toFile: storePath, atomically: true, encoding: .utf8)
+  }
+
+  /// Cluster reflections by keyword overlap, keep best per cluster.
+  /// Returns at most `maxEntries/2` distilled entries.
+  func distill(_ entries: [StoredReflection]) -> [StoredReflection] {
+    guard entries.count > 3 else { return entries }
+
+    // Simple single-pass clustering: assign each entry to a cluster
+    // based on keyword overlap with existing cluster centroids.
+    var clusters: [[StoredReflection]] = []
+
+    for entry in entries {
+      let terms = tokenize(entry.query + " " + entry.reflection.taskSummary)
+      var bestCluster = -1
+      var bestOverlap = 0
+
+      for (i, cluster) in clusters.enumerated() {
+        guard let representative = cluster.first else { continue }
+        let repTerms = tokenize(representative.query + " " + representative.reflection.taskSummary)
+        let overlap = terms.intersection(repTerms).count
+        if overlap > bestOverlap && overlap >= 2 {
+          bestOverlap = overlap
+          bestCluster = i
+        }
+      }
+
+      if bestCluster >= 0 {
+        clusters[bestCluster].append(entry)
+      } else {
+        clusters.append([entry])
+      }
+    }
+
+    // For each cluster, keep: most recent success + most recent failure
+    var kept: [StoredReflection] = []
+    for cluster in clusters {
+      let successes = cluster.filter { $0.reflection.succeeded }
+        .sorted { $0.timestamp > $1.timestamp }
+      let failures = cluster.filter { !$0.reflection.succeeded }
+        .sorted { $0.timestamp > $1.timestamp }
+
+      if let best = successes.first { kept.append(best) }
+      if let worst = failures.first { kept.append(worst) }
+    }
+
+    // Sort by recency, cap at maxEntries/2
+    kept.sort { $0.timestamp > $1.timestamp }
+    return Array(kept.prefix(maxEntries / 2))
   }
 
   // MARK: - Stats

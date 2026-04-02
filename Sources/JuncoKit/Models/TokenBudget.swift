@@ -42,7 +42,7 @@ public enum TokenBudget {
   }
 
   /// Truncate text to fit within a token budget.
-  /// Keeps first 60% and last 30% with a marker in the middle.
+  /// Legacy character-offset version. Prefer `truncateSmart` for code.
   public static func truncate(_ text: String, toTokens limit: Int) -> String {
     let currentTokens = estimate(text)
     guard currentTokens > limit else { return text }
@@ -58,6 +58,45 @@ public enum TokenBudget {
     let endIdx = text.index(text.endIndex, offsetBy: -min(keepEnd, text.count))
 
     return String(text[..<startIdx]) + marker + String(text[endIdx...])
+  }
+
+  /// Line-aware truncation that never breaks mid-line or mid-declaration.
+  /// Keeps complete lines from the start (60%) and end (30%) of the text.
+  public static func truncateSmart(_ text: String, toTokens limit: Int) -> String {
+    let currentTokens = estimate(text)
+    guard currentTokens > limit else { return text }
+
+    let lines = text.components(separatedBy: "\n")
+    guard lines.count > 2 else { return truncate(text, toTokens: limit) }
+
+    let headBudget = Int(Double(limit) * 0.6)
+    let tailBudget = Int(Double(limit) * 0.3)
+
+    // Collect lines from the start
+    var headLines: [String] = []
+    var headTokens = 0
+    for line in lines {
+      let lineTokens = estimate(line) + 1  // +1 for newline
+      if headTokens + lineTokens > headBudget { break }
+      headLines.append(line)
+      headTokens += lineTokens
+    }
+
+    // Collect lines from the end (in reverse)
+    var tailLines: [String] = []
+    var tailTokens = 0
+    for line in lines.reversed() {
+      let lineTokens = estimate(line) + 1
+      if tailTokens + lineTokens > tailBudget { break }
+      tailLines.insert(line, at: 0)
+      tailTokens += lineTokens
+    }
+
+    let omitted = lines.count - headLines.count - tailLines.count
+    if omitted <= 0 { return text }  // Everything fits
+
+    let marker = "[... \(omitted) lines omitted ...]"
+    return (headLines + [marker] + tailLines).joined(separator: "\n")
   }
 }
 

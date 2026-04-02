@@ -53,13 +53,14 @@ public enum Config {
   // MARK: - RAG
 
   /// Maximum files to index per project.
-  public static let maxIndexFiles = 100
+  /// Scales: <100 files = all, 100-500 = Sources fully + Tests summary, 500+ = smart selection.
+  public static let maxIndexFiles = 500
 
   /// Maximum directory depth for file scanning.
-  public static let maxScanDepth = 4
+  public static let maxScanDepth = 6
 
   /// Maximum files in quick listing.
-  public static let maxListFiles = 50
+  public static let maxListFiles = 200
 
   // MARK: - Reflections
 
@@ -73,6 +74,10 @@ public enum Config {
 
   /// Maximum token budget for skill hints injected into prompts.
   public static let skillHintBudget = 200
+
+  /// Safety margin as percentage of context window.
+  /// Reserved as buffer for token estimation errors. 5% ≈ 200 tokens at 4K.
+  public static let tokenSafetyMarginPercent = 5
 
   // MARK: - Persistence Paths
 

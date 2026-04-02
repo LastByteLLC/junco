@@ -58,4 +58,54 @@ struct TokenBudgetTests {
     #expect(total > 0)
     #expect(total == texts.map { TokenBudget.estimate($0) }.reduce(0, +))
   }
+
+  // MARK: - Line-Aware Truncation
+
+  @Test("truncateSmart preserves complete lines")
+  func smartTruncateLines() {
+    let lines = (1...20).map { "Line \($0): some content here that takes up space" }
+    let text = lines.joined(separator: "\n")
+    let result = TokenBudget.truncateSmart(text, toTokens: 30)
+    // Should not break mid-line
+    for line in result.components(separatedBy: "\n") {
+      let isMarker = line.contains("omitted")
+      let isCompleteLine = line.hasPrefix("Line ") || line.isEmpty
+      #expect(isMarker || isCompleteLine, "Broken line: \(line)")
+    }
+  }
+
+  @Test("truncateSmart includes omission marker with count")
+  func smartTruncateMarker() {
+    let lines = (1...50).map { "Line \($0)" }
+    let text = lines.joined(separator: "\n")
+    let result = TokenBudget.truncateSmart(text, toTokens: 20)
+    #expect(result.contains("lines omitted"))
+  }
+
+  @Test("truncateSmart preserves text under budget")
+  func smartTruncateNoop() {
+    let text = "short\ntext\nhere"
+    let result = TokenBudget.truncateSmart(text, toTokens: 100)
+    #expect(result == text)
+  }
+
+  @Test("truncateSmart keeps head and tail lines")
+  func smartTruncateHeadTail() {
+    let lines = (1...30).map { "Line \($0): content" }
+    let text = lines.joined(separator: "\n")
+    let result = TokenBudget.truncateSmart(text, toTokens: 20)
+    #expect(result.hasPrefix("Line 1:"))
+    #expect(result.contains("Line 30:"))
+  }
+
+  // MARK: - Safety Margin
+
+  @Test("safety margin config is reasonable")
+  func safetyMarginConfig() {
+    #expect(Config.tokenSafetyMarginPercent >= 3)
+    #expect(Config.tokenSafetyMarginPercent <= 15)
+    // At 4K window, 5% = 200 tokens
+    let margin = 4096 * Config.tokenSafetyMarginPercent / 100
+    #expect(margin >= 100)
+  }
 }

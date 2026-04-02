@@ -113,9 +113,9 @@ public struct FileTools: Sendable {
 
   /// List files in the project matching given extensions, up to a depth.
   public func listFiles(
-    extensions: [String] = ["swift", "js", "ts", "json", "md", "css", "html"],
-    maxDepth: Int = 4,
-    maxFiles: Int = 50
+    extensions: [String] = Config.swiftExtensions + ["json", "md", "plist"],
+    maxDepth: Int = Config.maxScanDepth,
+    maxFiles: Int = Config.maxListFiles
   ) -> [String] {
     let fm = FileManager.default
     guard let enumerator = fm.enumerator(
@@ -125,12 +125,11 @@ public struct FileTools: Sendable {
     ) else { return [] }
 
     var results: [String] = []
-    // Resolve symlinks for consistent path comparison (macOS /tmp → /private/tmp)
     let baseURL = URL(fileURLWithPath: workingDirectory).standardizedFileURL
     let basePath = baseURL.path
+    let ignoreFilter = IgnoreFilter(workingDirectory: workingDirectory)
 
     while let url = enumerator.nextObject() as? URL {
-      // Depth check
       let stdPath = url.standardizedFileURL.path
       let rel: String
       if stdPath.hasPrefix(basePath + "/") {
@@ -144,14 +143,11 @@ public struct FileTools: Sendable {
         continue
       }
 
-      // Skip ignored directories (.juncoignore + builtins)
-      let ignoreFilter = IgnoreFilter(workingDirectory: workingDirectory)
       if ignoreFilter.shouldIgnore(rel) {
         enumerator.skipDescendants()
         continue
       }
 
-      // Extension filter
       let ext = url.pathExtension
       if extensions.contains(ext) {
         results.append(rel)
