@@ -14,6 +14,9 @@ public struct WorkingMemory: Sendable {
   /// Project working directory (for prompt injection).
   public var workingDirectory: String
 
+  /// Agent operating mode (set after classify stage).
+  public var mode: AgentMode = .build
+
   /// Classified intent (set after classify stage).
   public var intent: AgentIntent?
 
@@ -67,10 +70,10 @@ public struct WorkingMemory: Sendable {
       parts.append("Project root: \(short)")
     }
 
-    parts.append("Task: \(query)")
+    parts.append("\(mode.icon) \(query)")
 
     if let intent {
-      parts.append("Domain: \(intent.domain) | Type: \(intent.taskType) | Complexity: \(intent.complexity)")
+      parts.append("Mode: \(mode.rawValue) | Domain: \(intent.domain) | Type: \(intent.taskType) | Complexity: \(intent.complexity)")
     }
 
     if let strategy {

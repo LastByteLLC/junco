@@ -20,6 +20,7 @@ struct WorkingMemoryTests {
       domain: "swift",
       taskType: "fix",
       complexity: "simple",
+      mode: "build",
       targets: ["Auth.swift"]
     )
     let desc = memory.compactDescription()
@@ -126,7 +127,7 @@ struct WorkingMemoryTests {
     var memory = WorkingMemory(query: "refactor the entire authentication module to use async/await")
     memory.intent = AgentIntent(
       domain: "swift", taskType: "refactor", complexity: "complex",
-      targets: ["Auth.swift", "Session.swift", "Token.swift"]
+      mode: "build", targets: ["Auth.swift", "Session.swift", "Token.swift"]
     )
     memory.strategy = AgentStrategy(
       approach: "decompose", startingPoints: ["Auth.swift"], risk: "breaking changes"

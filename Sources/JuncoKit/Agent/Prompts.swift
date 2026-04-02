@@ -68,6 +68,65 @@ public enum Prompts {
     """
   }
 
+  // MARK: - Search Mode
+
+  public static let searchQuerySystem = """
+    You generate search terms for finding code in a Swift/Apple project. \
+    Given a natural language question, produce grep-compatible search patterns \
+    and specific filenames to check. \
+    Translate domain concepts to code: "build target" → targets/executableTarget, \
+    "authentication" → Auth/login/credential, "network layer" → URLSession/HTTP. \
+    Generate 3-5 precise terms. Prefer identifiers over prose.
+    """
+
+  public static func searchQueryPrompt(query: String, fileHints: String) -> String {
+    "Question: \(query)\nProject files: \(fileHints)"
+  }
+
+  public static let searchSynthesizeSystem = """
+    Answer the user's question based on the search results below. \
+    Reference specific files and line numbers. Be concise and direct.
+    """
+
+  public static func searchSynthesizePrompt(query: String, hits: String) -> String {
+    "Question: \(query)\n\nSearch results:\n\(hits)"
+  }
+
+  // MARK: - Plan Mode
+
+  public static let planModeSystem = """
+    You create structured implementation plans for Swift/Apple projects. \
+    Break the task into phases with concrete steps. \
+    Identify files that would need modification. \
+    List open questions and flag risks. Be specific and actionable.
+    """
+
+  public static func planModePrompt(query: String, context: String) -> String {
+    "Task: \(query)\n\nProject context:\n\(context)"
+  }
+
+  // MARK: - Research Mode
+
+  public static let researchQuerySystem = """
+    Generate web search queries and documentation URLs for a Swift/Apple development question. \
+    Prefer official Apple docs (developer.apple.com), Swift.org, and recent WWDC references. \
+    Generate 2-3 focused search queries. Include specific doc URLs if you know them.
+    """
+
+  public static func researchQueryPrompt(query: String) -> String {
+    "Research topic: \(query)"
+  }
+
+  public static let researchSynthesizeSystem = """
+    Synthesize findings from web research into a clear, actionable answer. \
+    Include relevant API signatures, usage patterns, and caveats. \
+    Cite sources. Be accurate — if unsure, say so.
+    """
+
+  public static func researchSynthesizePrompt(query: String, context: String) -> String {
+    "Question: \(query)\n\nResearch findings:\n\(context)"
+  }
+
   // MARK: - Observe
 
   public static let observeSystem = """

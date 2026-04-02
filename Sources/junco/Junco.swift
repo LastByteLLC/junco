@@ -419,6 +419,11 @@ struct Junco: AsyncParsableCommand {
         wordCounter.add(chunk)
         let count = wordCounter.count
         await spinner.update(detail: "\(count) words")
+      },
+      onMode: { [spinner] mode in
+        await spinner.setMode(mode)
+        let stageName = "\(mode.rawValue)-mode"
+        await spinner.update(stage: stageName)
       }
     )
 

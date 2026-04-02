@@ -13,6 +13,23 @@ public enum ToolName: String, Sendable, Codable, CaseIterable {
   case bash, read, create, write, edit, patch, search
 }
 
+/// Agent operating mode — determines which pipeline variant runs.
+public enum AgentMode: String, Sendable, Codable, CaseIterable {
+  case build     // Default: create, fix, refactor, test code
+  case search    // Find things using natural language
+  case plan      // Disambiguate prompts into structured plans
+  case research  // Web search + fetch for API docs and facts
+
+  public var icon: String {
+    switch self {
+    case .build:    return "⏵⏵"
+    case .search:   return "⌕"
+    case .plan:     return "⏸"
+    case .research: return "ⓘ"
+    }
+  }
+}
+
 /// Outcome of a single tool execution step.
 public enum StepOutcome: String, Sendable, Codable {
   case ok
@@ -34,7 +51,15 @@ public struct AgentIntent: Codable, Sendable {
   @Guide(description: "simple, moderate, or complex")
   public var complexity: String
 
+  @Guide(description: "build, search, plan, or research")
+  public var mode: String
+
   public var targets: [String]
+
+  /// Typed mode with fallback to .build for unknown values.
+  public var agentMode: AgentMode {
+    AgentMode(rawValue: mode.lowercased()) ?? .build
+  }
 }
 
 // MARK: - Stage 2: Strategy Selection
@@ -201,6 +226,77 @@ public struct CodeSkeleton: Codable, Sendable {
 @Generable
 public struct MethodBody: Codable, Sendable {
   public var implementation: String
+}
+
+// MARK: - Mode-Specific Types
+
+/// Shared output type for non-build modes (Search, Plan, Research).
+/// Generic enough to carry any structured answer without narrow lock-in.
+@Generable
+public struct AgentResponse: Codable, Sendable {
+  /// Direct answer or main content.
+  public var answer: String
+  /// Supporting points, findings, file locations, or phase descriptions.
+  public var details: [String]
+  /// Suggested next steps or follow-up questions.
+  public var followUp: [String]
+}
+
+/// Search Mode: LLM-generated search queries for rg/grep + RAG.
+@Generable
+public struct SearchQueries: Codable, Sendable {
+  /// Terms to grep/rg for (e.g., "targets", "executableTarget", ".target(").
+  public var queries: [String]
+  /// Specific files or glob patterns to check (e.g., "Package.swift").
+  public var fileHints: [String]
+}
+
+/// Plan Mode: structured plan with generic sections.
+@Generable
+public struct StructuredPlan: Codable, Sendable {
+  public var summary: String
+  public var sections: [PlanSection]
+  /// Clarifications / ambiguities the user should resolve.
+  public var questions: [String]
+  /// Risks, dependencies, caveats.
+  public var concerns: [String]
+}
+
+@Generable
+public struct PlanSection: Codable, Sendable {
+  public var heading: String
+  /// Steps, notes, or details within this section.
+  public var items: [String]
+  /// Relevant files (if any).
+  public var files: [String]
+}
+
+/// Research Mode: LLM-generated queries for web search + URL fetch.
+@Generable
+public struct ResearchQueries: Codable, Sendable {
+  /// DuckDuckGo search queries to run.
+  public var webSearches: [String]
+  /// Specific URLs to fetch (documentation, references).
+  public var urls: [String]
+}
+
+// MARK: - Search Mode Internal Types (not @Generable)
+
+/// A single search result from grep, RAG, or file read.
+public struct SearchHit: Sendable {
+  public let file: String
+  public let line: Int
+  public let snippet: String
+  public let source: String  // "grep", "rag", "file"
+  public let score: Double
+
+  public init(file: String, line: Int, snippet: String, source: String, score: Double) {
+    self.file = file
+    self.line = line
+    self.snippet = snippet
+    self.source = source
+    self.score = score
+  }
 }
 
 // MARK: - Pipeline Errors

@@ -33,23 +33,29 @@ public typealias PermissionHandler = @Sendable (String, String, String) async ->
 /// Called with each chunk of streamed text output.
 public typealias StreamHandler = @Sendable (String) async -> Void
 
+/// Called when the agent mode is detected (after classify).
+public typealias ModeHandler = @Sendable (AgentMode) async -> Void
+
 /// All pipeline callbacks bundled together.
 public struct PipelineCallbacks: Sendable {
   public let onProgress: ProgressHandler?
   public let onStepError: ErrorRecoveryHandler?
   public let onPermission: PermissionHandler?
   public let onStream: StreamHandler?
+  public let onMode: ModeHandler?
 
   public init(
     onProgress: ProgressHandler? = nil,
     onStepError: ErrorRecoveryHandler? = nil,
     onPermission: PermissionHandler? = nil,
-    onStream: StreamHandler? = nil
+    onStream: StreamHandler? = nil,
+    onMode: ModeHandler? = nil
   ) {
     self.onProgress = onProgress
     self.onStepError = onStepError
     self.onPermission = onPermission
     self.onStream = onStream
+    self.onMode = onMode
   }
 
   /// Default callbacks: auto-allow permissions, skip errors, no progress.

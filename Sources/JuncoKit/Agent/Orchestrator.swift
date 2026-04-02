@@ -166,7 +166,9 @@ public actor Orchestrator {
     // Classify
     let intent = try await classify(query: query, memory: &memory, explicitTargets: referencedFiles)
     memory.intent = intent
-    debug("CLASSIFY → domain:\(intent.domain) type:\(intent.taskType) complexity:\(intent.complexity) targets:\(intent.targets)")
+    memory.mode = intent.agentMode
+    await callbacks.onMode?(memory.mode)
+    debug("CLASSIFY → mode:\(memory.mode.rawValue) domain:\(intent.domain) type:\(intent.taskType) complexity:\(intent.complexity) targets:\(intent.targets)")
 
     // Research Mode: search web for disambiguation when needed
     // Triggered when the query is ambiguous (explore with no targets) or
@@ -180,6 +182,29 @@ public actor Orchestrator {
         debug("RESEARCH → \(searchCtx.sourceCount) source(s), \(searchCtx.tokens) tokens")
       }
     }
+
+    // Mode dispatch — each mode has its own pipeline variant
+    switch memory.mode {
+    case .build:
+      return try await runBuild(memory: &memory, explicitContext: explicitContext, callbacks: callbacks)
+    case .search:
+      return try await runSearch(memory: &memory, explicitContext: explicitContext, callbacks: callbacks)
+    case .plan:
+      return try await runPlan(memory: &memory, explicitContext: explicitContext, callbacks: callbacks)
+    case .research:
+      return try await runResearch(memory: &memory, explicitContext: explicitContext, callbacks: callbacks)
+    }
+  }
+
+  // MARK: - Build Mode (default pipeline)
+
+  private func runBuild(
+    memory: inout WorkingMemory,
+    explicitContext: String,
+    callbacks: PipelineCallbacks
+  ) async throws -> RunResult {
+    let query = memory.query
+    let intent = memory.intent!
 
     // Explain/explore shortcut with @-files — supports streaming
     if (intent.taskType == "explain" || intent.taskType == "explore") && !explicitContext.isEmpty {
@@ -199,7 +224,7 @@ public actor Orchestrator {
       }
 
       let reflection = AgentReflection(
-        taskSummary: "Explained \(referencedFiles.joined(separator: ", "))",
+        taskSummary: "Explained \(intent.targets.joined(separator: ", "))",
         insight: response, improvement: "", succeeded: true
       )
       debug("EXPLAIN → \(TokenBudget.estimate(response)) tokens")
@@ -499,6 +524,318 @@ public actor Orchestrator {
     return RunResult(memory: memory, reflection: reflection)
   }
 
+  // MARK: - Search Mode
+
+  /// Cached rg availability (checked once).
+  nonisolated(unsafe) private static var _hasRg: Bool?
+  private static func hasRg() -> Bool {
+    if let cached = _hasRg { return cached }
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+    p.arguments = ["rg"]
+    p.standardOutput = FileHandle.nullDevice
+    p.standardError = FileHandle.nullDevice
+    do { try p.run(); p.waitUntilExit() } catch { _hasRg = false; return false }
+    _hasRg = p.terminationStatus == 0
+    return _hasRg!
+  }
+
+  private func runSearch(
+    memory: inout WorkingMemory,
+    explicitContext: String,
+    callbacks: PipelineCallbacks
+  ) async throws -> RunResult {
+    let query = memory.query
+    debug("SEARCH MODE → \(query)")
+
+    // Step 1: Generate search queries via LLM
+    let fileList = files.listFiles().prefix(25).joined(separator: "\n")
+    let sqPrompt = Prompts.searchQueryPrompt(query: query, fileHints: fileList)
+    memory.trackCall(estimatedTokens: 600)
+    let searchQueries = try await adapter.generateStructured(
+      prompt: sqPrompt, system: Prompts.searchQuerySystem, as: SearchQueries.self
+    )
+    debug("SEARCH queries: \(searchQueries.queries) | files: \(searchQueries.fileHints)")
+
+    // Step 2: Execute searches (deterministic, no LLM)
+    var hits: [SearchHit] = []
+
+    // 2a: grep/rg for each query term
+    for term in searchQueries.queries.prefix(5) {
+      let escaped = shellEscape(term)
+      let cmd: String
+      if Self.hasRg() {
+        cmd = "rg --type swift -n \(escaped) . 2>/dev/null | head -8"
+      } else {
+        cmd = "grep -rn \(escaped) . --include='*.swift' 2>/dev/null | head -8"
+      }
+      if let result = try? await shell.execute(cmd), result.exitCode == 0 {
+        for line in result.stdout.components(separatedBy: "\n") where !line.isEmpty {
+          if let hit = parseGrepLine(line, term: term) {
+            hits.append(hit)
+          }
+        }
+      }
+    }
+
+    // 2b: Read file hints directly
+    for fileHint in searchQueries.fileHints.prefix(3) {
+      let matched = files.listFiles().filter {
+        $0.lowercased().contains(fileHint.lowercased()) ||
+        ($0 as NSString).lastPathComponent.lowercased() == fileHint.lowercased()
+      }
+      for file in matched.prefix(2) {
+        if let content = try? files.read(path: file, maxTokens: 300) {
+          hits.append(SearchHit(
+            file: file, line: 1,
+            snippet: String(content.prefix(200)),
+            source: "file", score: 3.0
+          ))
+        }
+      }
+    }
+
+    // 2c: RAG symbol search
+    for term in searchQueries.queries.prefix(3) {
+      let packed = contextPacker.pack(
+        query: term, index: projectIndex, budget: 150
+      )
+      if packed != "(no relevant code found)" {
+        hits.append(SearchHit(
+          file: "index", line: 0,
+          snippet: String(packed.prefix(200)),
+          source: "rag", score: 1.0
+        ))
+      }
+    }
+
+    // Step 3: Rank, deduplicate, format
+    let ranked = rankAndDeduplicate(hits)
+    let hitsText = formatHits(ranked.prefix(10))
+    debug("SEARCH → \(ranked.count) hits")
+
+    // Step 4: Synthesize answer via LLM
+    if ranked.isEmpty {
+      let reflection = AgentReflection(
+        taskSummary: "Search: \(query)",
+        insight: "No results found for this query. Try rephrasing or using different terms.",
+        improvement: "", succeeded: false
+      )
+      metrics.tasksCompleted += 1
+      return RunResult(memory: memory, reflection: reflection)
+    }
+
+    memory.trackCall(estimatedTokens: 800)
+    let response = try await adapter.generateStructured(
+      prompt: Prompts.searchSynthesizePrompt(query: query, hits: hitsText),
+      system: Prompts.searchSynthesizeSystem,
+      as: AgentResponse.self
+    )
+
+    let insight = response.answer + (response.details.isEmpty ? "" : "\n\n" +
+      response.details.map { "  • \($0)" }.joined(separator: "\n"))
+    let reflection = AgentReflection(
+      taskSummary: "Search: \(query)",
+      insight: insight,
+      improvement: response.followUp.joined(separator: "; "),
+      succeeded: true
+    )
+
+    metrics.tasksCompleted += 1
+    metrics.totalTokensUsed += memory.totalTokensUsed
+    metrics.totalLLMCalls += memory.llmCalls
+    return RunResult(memory: memory, reflection: reflection)
+  }
+
+  /// Parse a grep/rg output line into a SearchHit.
+  private func parseGrepLine(_ line: String, term: String) -> SearchHit? {
+    // Format: ./path/to/file.swift:42:  matched content
+    let parts = line.split(separator: ":", maxSplits: 2)
+    guard parts.count >= 2 else { return nil }
+    let file = String(parts[0]).replacingOccurrences(of: "./", with: "")
+    let lineNum = Int(parts[1]) ?? 0
+    let snippet = parts.count > 2 ? String(parts[2]).trimmingCharacters(in: .whitespaces) : ""
+    return SearchHit(file: file, line: lineNum, snippet: String(snippet.prefix(120)), source: "grep", score: 2.0)
+  }
+
+  /// Deduplicate hits by file+line proximity, sort by score.
+  private func rankAndDeduplicate(_ hits: [SearchHit]) -> [SearchHit] {
+    var seen: Set<String> = []
+    var unique: [SearchHit] = []
+    for hit in hits.sorted(by: { $0.score > $1.score }) {
+      let key = "\(hit.file):\(hit.line / 5)"  // Group lines within 5 of each other
+      if seen.insert(key).inserted {
+        unique.append(hit)
+      }
+    }
+    return unique
+  }
+
+  /// Format search hits for prompt injection.
+  private func formatHits(_ hits: some Collection<SearchHit>) -> String {
+    hits.map { hit in
+      if hit.line > 0 {
+        return "[\(hit.file):\(hit.line)] \(hit.snippet)"
+      } else {
+        return "[\(hit.file)] \(hit.snippet)"
+      }
+    }.joined(separator: "\n")
+  }
+
+  // MARK: - Plan Mode
+
+  private func runPlan(
+    memory: inout WorkingMemory,
+    explicitContext: String,
+    callbacks: PipelineCallbacks
+  ) async throws -> RunResult {
+    let query = memory.query
+    debug("PLAN MODE → \(query)")
+
+    // Step 1: Gather context (read-only)
+    var context = explicitContext
+    if context.isEmpty {
+      // Read key project files for context
+      for file in ["Package.swift", "README.md"] {
+        if files.exists(file), let content = try? files.read(path: file, maxTokens: 200) {
+          context += "--- \(file) ---\n\(content)\n\n"
+        }
+      }
+      // RAG search for relevant symbols
+      let packed = contextPacker.pack(
+        query: query, index: projectIndex, budget: 300,
+        preferredFiles: memory.intent?.targets ?? []
+      )
+      if packed != "(no relevant code found)" {
+        context += packed
+      }
+    }
+
+    // Step 2: Generate structured plan via LLM
+    let planPrompt = Prompts.planModePrompt(
+      query: query, context: TokenBudget.truncate(context, toTokens: 600)
+    )
+    memory.trackCall(estimatedTokens: 1200)
+    let structuredPlan = try await adapter.generateStructured(
+      prompt: planPrompt, system: Prompts.planModeSystem, as: StructuredPlan.self
+    )
+
+    // Step 3: Format as readable output
+    var output = structuredPlan.summary + "\n"
+    for section in structuredPlan.sections {
+      output += "\n\(section.heading)\n"
+      for item in section.items {
+        output += "  - \(item)\n"
+      }
+      if !section.files.isEmpty {
+        output += "  Files: \(section.files.joined(separator: ", "))\n"
+      }
+    }
+    if !structuredPlan.questions.isEmpty {
+      output += "\nQuestions:\n"
+      for q in structuredPlan.questions {
+        output += "  ? \(q)\n"
+      }
+    }
+    if !structuredPlan.concerns.isEmpty {
+      output += "\nConcerns:\n"
+      for c in structuredPlan.concerns {
+        output += "  ! \(c)\n"
+      }
+    }
+
+    let reflection = AgentReflection(
+      taskSummary: "Plan: \(query)",
+      insight: output,
+      improvement: structuredPlan.questions.first ?? "",
+      succeeded: true
+    )
+
+    metrics.tasksCompleted += 1
+    metrics.totalTokensUsed += memory.totalTokensUsed
+    metrics.totalLLMCalls += memory.llmCalls
+    return RunResult(memory: memory, reflection: reflection)
+  }
+
+  // MARK: - Research Mode
+
+  private func runResearch(
+    memory: inout WorkingMemory,
+    explicitContext: String,
+    callbacks: PipelineCallbacks
+  ) async throws -> RunResult {
+    let query = memory.query
+    debug("RESEARCH MODE → \(query)")
+
+    // Step 1: Generate research queries via LLM
+    memory.trackCall(estimatedTokens: 600)
+    let researchQueries = try await adapter.generateStructured(
+      prompt: Prompts.researchQueryPrompt(query: query),
+      system: Prompts.researchQuerySystem,
+      as: ResearchQueries.self
+    )
+    debug("RESEARCH queries: \(researchQueries.webSearches) | urls: \(researchQueries.urls)")
+
+    // Step 2: Execute research (web search + URL fetch, concurrent)
+    var researchContext = ""
+
+    // 2a: Web searches
+    let search = WebSearch()
+    for searchQuery in researchQueries.webSearches.prefix(3) {
+      if let result = await search.search(query: searchQuery, maxResults: 3) {
+        let formatted = search.formatForPrompt(result, budget: 200)
+        researchContext += formatted + "\n"
+      }
+    }
+
+    // 2b: URL fetches
+    let fetcher = URLFetcher()
+    let urls = researchQueries.urls.prefix(3).compactMap { URL(string: $0) }
+    let fetched = await fetcher.fetchAll(urls: urls, totalBudget: 400)
+    if let formatted = fetcher.formatForPrompt(fetched: fetched, budget: 300) {
+      researchContext += formatted
+    }
+
+    // Step 3: Synthesize findings via LLM
+    if researchContext.isEmpty {
+      let reflection = AgentReflection(
+        taskSummary: "Research: \(query)",
+        insight: "No results found. The search queries may not have returned relevant results. Try rephrasing.",
+        improvement: "", succeeded: false
+      )
+      metrics.tasksCompleted += 1
+      return RunResult(memory: memory, reflection: reflection)
+    }
+
+    memory.trackCall(estimatedTokens: 800)
+    let response = try await adapter.generateStructured(
+      prompt: Prompts.researchSynthesizePrompt(
+        query: query,
+        context: TokenBudget.truncate(researchContext, toTokens: 600)
+      ),
+      system: Prompts.researchSynthesizeSystem,
+      as: AgentResponse.self
+    )
+
+    // Step 4: Store in scratchpad for future Build Mode reference
+    let key = "research-\(query.prefix(30).replacingOccurrences(of: " ", with: "-"))"
+    scratchpad.write(key: key, value: String(response.answer.prefix(300)))
+
+    let insight = response.answer + (response.details.isEmpty ? "" : "\n\n" +
+      response.details.map { "  • \($0)" }.joined(separator: "\n"))
+    let reflection = AgentReflection(
+      taskSummary: "Research: \(query)",
+      insight: insight,
+      improvement: response.followUp.joined(separator: "; "),
+      succeeded: true
+    )
+
+    metrics.tasksCompleted += 1
+    metrics.totalTokensUsed += memory.totalTokensUsed
+    metrics.totalLLMCalls += memory.llmCalls
+    return RunResult(memory: memory, reflection: reflection)
+  }
+
   // MARK: - Conversational
 
   private func handleConversational(_ query: String) -> String? {
@@ -637,9 +974,20 @@ public actor Orchestrator {
         targets = matched.isEmpty ? Array(fileList.prefix(3)) : matched
       }
 
+      // Heuristic mode from taskType: explore + no targets → search
+      let inferredMode: String
+      if finalLabel == "explore" && targets.isEmpty {
+        inferredMode = "search"
+      } else if finalLabel == "explain" && explicitTargets.isEmpty {
+        inferredMode = "research"
+      } else {
+        inferredMode = "build"
+      }
+
       return AgentIntent(
         domain: domain.kind.rawValue, taskType: finalLabel,
-        complexity: targets.count > 2 ? "moderate" : "simple", targets: targets
+        complexity: targets.count > 2 ? "moderate" : "simple",
+        mode: inferredMode, targets: targets
       )
     }
 

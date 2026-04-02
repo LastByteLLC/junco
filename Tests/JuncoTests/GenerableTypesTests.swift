@@ -13,6 +13,7 @@ struct GenerableTypesTests {
       domain: "swift",
       taskType: "fix",
       complexity: "simple",
+      mode: "build",
       targets: ["Auth.swift", "Session.swift"]
     )
     let data = try JSONEncoder().encode(intent)

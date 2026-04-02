@@ -25,6 +25,7 @@ public actor Spinner {
   private var phraseText: String = ""
   private var phraseAge: Int = 0
   private let phraseRotateInterval: Int  // Rotate phrase every N ticks
+  private var mode: AgentMode = .build
 
   /// How the spinner renders its output. Replaceable for testing.
   private let render: @Sendable (String) -> Void
@@ -65,6 +66,11 @@ public actor Spinner {
     }
   }
 
+  /// Set the agent mode (changes the icon prefix).
+  public func setMode(_ newMode: AgentMode) {
+    mode = newMode
+  }
+
   /// Update the spinner's stage and/or detail without restarting.
   public func update(stage: String? = nil, detail: String? = nil) {
     if let s = stage, s != currentStage {
@@ -100,11 +106,12 @@ public actor Spinner {
     }
 
     let frame = ThinkingPhrases.spinnerFrames[tick % ThinkingPhrases.spinnerFrames.count]
+    let icon = mode.icon
     let line: String
     if currentDetail.isEmpty {
-      line = Style.red("\(frame) \(phraseText)...")
+      line = "\(icon) " + Style.red("\(frame) \(phraseText)...")
     } else {
-      line = Style.red("\(frame) \(phraseText)...") + " " + Style.dim(currentDetail)
+      line = "\(icon) " + Style.red("\(frame) \(phraseText)...") + " " + Style.dim(currentDetail)
     }
     render(line)
   }
