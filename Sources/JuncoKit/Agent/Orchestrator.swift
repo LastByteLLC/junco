@@ -565,9 +565,9 @@ public actor Orchestrator {
       let escaped = shellEscape(term)
       let cmd: String
       if Self.hasRg() {
-        cmd = "rg --type swift -n \(escaped) . 2>/dev/null | head -8"
+        cmd = "rg --type swift -n \(escaped) Sources/ Tests/ Package.swift 2>/dev/null | head -8"
       } else {
-        cmd = "grep -rn \(escaped) . --include='*.swift' 2>/dev/null | head -8"
+        cmd = "grep -rn \(escaped) Sources/ Tests/ Package.swift --include='*.swift' 2>/dev/null | head -8"
       }
       if let result = try? await shell.execute(cmd), result.exitCode == 0 {
         for line in result.stdout.components(separatedBy: "\n") where !line.isEmpty {
@@ -598,17 +598,23 @@ public actor Orchestrator {
     }
 
     // 2c: RAG symbol search (both LLM terms and original query)
+    // Query the index directly for matching entries with real file paths.
     let ragQueries = Set(searchQueries.queries + [query])
+    var seenRAGFiles: Set<String> = []
     for term in ragQueries.prefix(5) {
-      let packed = contextPacker.pack(
-        query: term, index: projectIndex, budget: 150
-      )
-      if packed != "(no relevant code found)" {
-        hits.append(SearchHit(
-          file: "index", line: 0,
-          snippet: String(packed.prefix(200)),
-          source: "rag", score: 1.0
-        ))
+      let termLower = term.lowercased()
+      for entry in projectIndex where !seenRAGFiles.contains(entry.filePath) {
+        let name = entry.symbolName.lowercased()
+        let path = entry.filePath.lowercased()
+        if name.contains(termLower) || path.contains(termLower) ||
+           entry.snippet.lowercased().contains(termLower) {
+          seenRAGFiles.insert(entry.filePath)
+          hits.append(SearchHit(
+            file: entry.filePath, line: entry.lineNumber,
+            snippet: entry.snippet,
+            source: "rag", score: 1.5
+          ))
+        }
       }
     }
 
@@ -634,11 +640,24 @@ public actor Orchestrator {
     let synthesizeBudget = TokenBudget.contextWindow - systemTokens - queryTokens - 800  // reserve 800 for generation
     let packedHits = packSearchHits(ranked, budget: max(200, synthesizeBudget))
 
+    // Build project context line for grounding
+    let projectCtx = "Swift/SPM project at \(workingDirectory.split(separator: "/").last ?? ".")" +
+      " — main target: Sources/junco/, library: Sources/JuncoKit/, tests: Tests/JuncoTests/"
+
+    // Build a raw results summary (always shown, regardless of synthesis quality)
+    let topHits = ranked.prefix(5)
+    let rawSummary = topHits.map { hit in
+      hit.line > 0 ? "  \(hit.file):\(hit.line) — \(String(hit.snippet.prefix(80)))" : "  \(hit.file)"
+    }.joined(separator: "\n")
+
     memory.trackCall(estimatedTokens: TokenBudget.contextWindow)
-    let insight = try await adapter.generate(
-      prompt: Prompts.searchSynthesizePrompt(query: query, hits: packedHits),
+    let synthesis = try await adapter.generate(
+      prompt: Prompts.searchSynthesizePrompt(query: query, hits: packedHits, projectContext: projectCtx),
       system: Prompts.searchSynthesizeSystem
     )
+
+    // Combine: LLM synthesis first, then raw hit locations as reference
+    let insight = synthesis + "\n\nLocations found:\n" + rawSummary
 
     let reflection = AgentReflection(
       taskSummary: "Search: \(query)",
@@ -742,10 +761,16 @@ public actor Orchestrator {
 
     // Step 1: Gather context (read-only)
     var context = explicitContext
-    if context.isEmpty {
+
+    // Always include project structure for grounding
+    let fileList = files.listFiles()
+    context += "Project files (\(fileList.count)):\n" +
+      fileList.prefix(30).joined(separator: "\n") + "\n\n"
+
+    if explicitContext.isEmpty {
       // Read key project files for context
-      for file in ["Package.swift", "README.md"] {
-        if files.exists(file), let content = try? files.read(path: file, maxTokens: 200) {
+      for file in ["Package.swift"] {
+        if files.exists(file), let content = try? files.read(path: file, maxTokens: 400) {
           context += "--- \(file) ---\n\(content)\n\n"
         }
       }

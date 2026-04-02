@@ -16,9 +16,30 @@ import JuncoKit
 struct JuncoEval {
   static func main() async throws {
     let verbose = CommandLine.arguments.contains("--verbose") || CommandLine.arguments.contains("-v")
-    let filterName = parseArg("--scenario")
-
+    let isEval = CommandLine.arguments.contains("--eval")
     let baseDir = FileManager.default.currentDirectoryPath
+
+    // Self-evaluation mode
+    if isEval {
+      let caseFilter = parseArg("--case")
+      let includeDestructive = CommandLine.arguments.contains("--destructive")
+      let reportPath = parseArg("--report")
+
+      let harness = EvalHarness(workingDirectory: baseDir, verbose: verbose)
+      let report = await harness.run(
+        caseFilter: caseFilter,
+        includeDestructive: includeDestructive,
+        reportPath: reportPath
+      )
+
+      if verbose {
+        print("\n" + report)
+      }
+      return
+    }
+
+    // Scenario mode (existing)
+    let filterName = parseArg("--scenario")
     let scenariosPath = (baseDir as NSString).appendingPathComponent("fixtures/scenarios.json")
 
     guard let data = FileManager.default.contents(atPath: scenariosPath),

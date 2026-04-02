@@ -100,14 +100,21 @@ public enum Prompts {
   }
 
   public static let searchSynthesizeSystem = """
-    Answer the user's question based on the search results below. \
-    Reference specific files and line numbers. \
-    Include the key details they need — names, paths, relevant code snippets. \
-    Be thorough but not verbose.
+    Answer the user's question using ONLY the search results below. \
+    Start with the file path and line number of the most relevant result. \
+    Then quote the relevant code snippet. \
+    Then briefly explain what it shows. \
+    Do NOT invent information not in the results. \
+    Do NOT add code that isn't shown in the results.
     """
 
-  public static func searchSynthesizePrompt(query: String, hits: String) -> String {
-    "Question: \(query)\n\nSearch results:\n\(hits)"
+  public static func searchSynthesizePrompt(query: String, hits: String, projectContext: String = "") -> String {
+    var prompt = "Question: \(query)\n"
+    if !projectContext.isEmpty {
+      prompt += "Project: \(projectContext)\n"
+    }
+    prompt += "\nSearch results:\n\(hits)"
+    return prompt
   }
 
   // MARK: - Plan Mode
@@ -115,7 +122,8 @@ public enum Prompts {
   public static let planModeSystem = """
     You create structured implementation plans for Swift/Apple projects. \
     Break the task into phases with concrete steps. \
-    Identify files that would need modification. \
+    Reference actual file paths from the project context — do not guess paths. \
+    Each step should name the specific file to modify and what to change. \
     List open questions and flag risks. Be specific and actionable.
     """
 

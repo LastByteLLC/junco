@@ -31,7 +31,7 @@ struct Junco: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "junco",
     abstract: "An AI coding agent powered by on-device language models.",
-    version: "0.4.0"
+    version: "0.4.1"
   )
 
   @Option(name: .shortAndLong, help: "Working directory (default: current)")

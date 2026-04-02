@@ -13,8 +13,11 @@ public struct IgnoreFilter: Sendable {
   /// Always-excluded directories (hardcoded).
   private static let builtinIgnores = [
     ".build", ".git", ".junco",
+    ".claude", ".codex", ".vscode",
     "DerivedData", ".swiftpm",
     "Pods", "build",
+    "Samples", "fixtures", "Training",
+    "node_modules", "vendor",
   ]
 
   public init(workingDirectory: String) {
