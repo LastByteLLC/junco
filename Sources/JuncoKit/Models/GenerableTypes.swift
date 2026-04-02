@@ -38,6 +38,14 @@ public enum StepOutcome: String, Sendable, Codable {
   case validationFailed
 }
 
+// MARK: - Mode Classification (dedicated small LLM call)
+
+@Generable
+public struct ModeClassification: Codable, Sendable {
+  @Guide(description: "build, search, plan, or research")
+  public var mode: String
+}
+
 // MARK: - Stage 1: Intent Classification
 
 @Generable

@@ -560,7 +560,7 @@ public actor Orchestrator {
     // Step 2: Execute searches (deterministic, no LLM)
     var hits: [SearchHit] = []
 
-    // 2a: grep/rg for each query term
+    // 2a: grep/rg for each LLM-generated query term
     for term in searchQueries.queries.prefix(5) {
       let escaped = shellEscape(term)
       let cmd: String
@@ -578,25 +578,28 @@ public actor Orchestrator {
       }
     }
 
-    // 2b: Read file hints directly
-    for fileHint in searchQueries.fileHints.prefix(3) {
+    // 2b: Read file hints directly (LLM-suggested filenames + well-known files)
+    // Read generously — budget packing in step 4 handles truncation intelligently.
+    let allFileHints = searchQueries.fileHints + Self.wellKnownFiles(for: domain)
+    for fileHint in Set(allFileHints).prefix(5) {
       let matched = files.listFiles().filter {
         $0.lowercased().contains(fileHint.lowercased()) ||
         ($0 as NSString).lastPathComponent.lowercased() == fileHint.lowercased()
       }
       for file in matched.prefix(2) {
-        if let content = try? files.read(path: file, maxTokens: 300) {
+        if let content = try? files.read(path: file, maxTokens: 2000) {
           hits.append(SearchHit(
             file: file, line: 1,
-            snippet: String(content.prefix(200)),
+            snippet: content,
             source: "file", score: 3.0
           ))
         }
       }
     }
 
-    // 2c: RAG symbol search
-    for term in searchQueries.queries.prefix(3) {
+    // 2c: RAG symbol search (both LLM terms and original query)
+    let ragQueries = Set(searchQueries.queries + [query])
+    for term in ragQueries.prefix(5) {
       let packed = contextPacker.pack(
         query: term, index: projectIndex, budget: 150
       )
@@ -609,12 +612,11 @@ public actor Orchestrator {
       }
     }
 
-    // Step 3: Rank, deduplicate, format
+    // Step 3: Rank and deduplicate
     let ranked = rankAndDeduplicate(hits)
-    let hitsText = formatHits(ranked.prefix(10))
     debug("SEARCH → \(ranked.count) hits")
 
-    // Step 4: Synthesize answer via LLM
+    // Step 4: Synthesize answer via LLM (plain text — no @Generable overhead)
     if ranked.isEmpty {
       let reflection = AgentReflection(
         taskSummary: "Search: \(query)",
@@ -625,19 +627,23 @@ public actor Orchestrator {
       return RunResult(memory: memory, reflection: reflection)
     }
 
-    memory.trackCall(estimatedTokens: 800)
-    let response = try await adapter.generateStructured(
-      prompt: Prompts.searchSynthesizePrompt(query: query, hits: hitsText),
-      system: Prompts.searchSynthesizeSystem,
-      as: AgentResponse.self
+    // Pack search results into token budget — high-scoring hits get more space.
+    // The LLM sees as much relevant content as will fit, not an arbitrary slice.
+    let systemTokens = TokenBudget.estimate(Prompts.searchSynthesizeSystem)
+    let queryTokens = TokenBudget.estimate(query) + 30  // "Question: " overhead
+    let synthesizeBudget = TokenBudget.contextWindow - systemTokens - queryTokens - 800  // reserve 800 for generation
+    let packedHits = packSearchHits(ranked, budget: max(200, synthesizeBudget))
+
+    memory.trackCall(estimatedTokens: TokenBudget.contextWindow)
+    let insight = try await adapter.generate(
+      prompt: Prompts.searchSynthesizePrompt(query: query, hits: packedHits),
+      system: Prompts.searchSynthesizeSystem
     )
 
-    let insight = response.answer + (response.details.isEmpty ? "" : "\n\n" +
-      response.details.map { "  • \($0)" }.joined(separator: "\n"))
     let reflection = AgentReflection(
       taskSummary: "Search: \(query)",
       insight: insight,
-      improvement: response.followUp.joined(separator: "; "),
+      improvement: "",
       succeeded: true
     )
 
@@ -669,6 +675,48 @@ public actor Orchestrator {
       }
     }
     return unique
+  }
+
+  /// Pack search hits into a token budget, giving higher-scoring hits more space.
+  /// No arbitrary char limits — the budget determines how much of each hit is shown.
+  private func packSearchHits(_ hits: [SearchHit], budget: Int) -> String {
+    guard !hits.isEmpty else { return "(no results)" }
+
+    let sorted = hits.sorted { $0.score > $1.score }
+    var output = ""
+    var used = 0
+
+    for hit in sorted.prefix(10) {
+      let header = hit.line > 0 ? "[\(hit.file):\(hit.line)]" : "[\(hit.file)]"
+      let headerTokens = TokenBudget.estimate(header) + 2  // newline overhead
+
+      let remaining = budget - used - headerTokens
+      guard remaining > 20 else { break }
+
+      // Give each hit its fair share of remaining budget, but let
+      // high-scoring hits use more by not capping below actual content.
+      let snippetTokens = TokenBudget.estimate(hit.snippet)
+      let snippet: String
+      if snippetTokens <= remaining {
+        snippet = hit.snippet
+      } else {
+        snippet = TokenBudget.truncate(hit.snippet, toTokens: remaining)
+      }
+
+      output += "\(header)\n\(snippet)\n\n"
+      used += TokenBudget.estimate(output) - used  // re-measure to be accurate
+    }
+
+    return output
+  }
+
+  /// Well-known project files that often contain structural information.
+  private static func wellKnownFiles(for domain: DomainConfig) -> [String] {
+    var files = ["Package.swift", "README.md"]
+    if domain.kind == .swift {
+      files += ["Sources", "Tests"]
+    }
+    return files
   }
 
   /// Format search hits for prompt injection.
@@ -948,6 +996,25 @@ public actor Orchestrator {
     "setsumei": "explain", "naoshite": "fix",
   ]
 
+  /// Classify the agent mode via a small dedicated LLM call.
+  /// Used when the ML classifier handles taskType but doesn't know modes.
+  /// Tiny context (~100 tokens) — uses the model's language understanding
+  /// instead of brittle phrase matching.
+  private func classifyMode(query: String, memory: inout WorkingMemory) async -> AgentMode {
+    memory.trackCall(estimatedTokens: 200)
+    do {
+      let result = try await adapter.generateStructured(
+        prompt: query,
+        system: Prompts.modeClassifySystem,
+        as: ModeClassification.self
+      )
+      return AgentMode(rawValue: result.mode.lowercased()) ?? .build
+    } catch {
+      debug("Mode classification failed, defaulting to build: \(error)")
+      return .build
+    }
+  }
+
   private func classify(
     query: String, memory: inout WorkingMemory, explicitTargets: [String] = []
   ) async throws -> AgentIntent {
@@ -974,20 +1041,15 @@ public actor Orchestrator {
         targets = matched.isEmpty ? Array(fileList.prefix(3)) : matched
       }
 
-      // Heuristic mode from taskType: explore + no targets → search
-      let inferredMode: String
-      if finalLabel == "explore" && targets.isEmpty {
-        inferredMode = "search"
-      } else if finalLabel == "explain" && explicitTargets.isEmpty {
-        inferredMode = "research"
-      } else {
-        inferredMode = "build"
-      }
+      // ML classifier handles taskType but doesn't know modes.
+      // Use a small dedicated LLM call for mode classification.
+      let detectedMode = await classifyMode(query: query, memory: &memory)
+      debug("Mode classification: \(detectedMode.rawValue)")
 
       return AgentIntent(
         domain: domain.kind.rawValue, taskType: finalLabel,
         complexity: targets.count > 2 ? "moderate" : "simple",
-        mode: inferredMode, targets: targets
+        mode: detectedMode.rawValue, targets: targets
       )
     }
 

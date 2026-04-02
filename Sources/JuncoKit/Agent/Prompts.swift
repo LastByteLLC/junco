@@ -13,10 +13,22 @@ private let toolList = """
 /// Prompt templates for each pipeline stage.
 public enum Prompts {
 
+  // MARK: - Mode Classification
+
+  public static let modeClassifySystem = """
+    Classify this query into exactly one mode: \
+    build (create, fix, modify, refactor, or test code), \
+    search (find, locate, or identify something in the codebase), \
+    plan (design an approach, outline steps, or architect a solution), \
+    research (look up external documentation, APIs, or concepts not in the project).
+    """
+
   // MARK: - Classify
 
   public static let classifySystem = """
-    You classify coding tasks. Respond with the structured fields only.
+    You classify coding tasks. Respond with the structured fields only. \
+    mode: build (create/fix/modify/test code), search (find/locate in codebase), \
+    plan (design approach/outline steps), research (look up external docs/APIs).
     """
 
   public static func classifyPrompt(query: String, fileHints: String) -> String {
@@ -72,20 +84,26 @@ public enum Prompts {
 
   public static let searchQuerySystem = """
     You generate search terms for finding code in a Swift/Apple project. \
-    Given a natural language question, produce grep-compatible search patterns \
-    and specific filenames to check. \
-    Translate domain concepts to code: "build target" → targets/executableTarget, \
-    "authentication" → Auth/login/credential, "network layer" → URLSession/HTTP. \
-    Generate 3-5 precise terms. Prefer identifiers over prose.
+    Given a natural language question, produce grep-compatible patterns and filenames. \
+    IMPORTANT: Translate concepts to actual Swift identifiers and filenames: \
+    "build target" → targets, .target(, executableTarget, Package.swift; \
+    "authentication" → Auth, login, credential, Keychain; \
+    "network layer" → URLSession, HTTPClient, fetch, request; \
+    "data model" → struct, @Model, CoreData, SwiftData; \
+    "entry point" → @main, App.swift, main.swift. \
+    Generate 3-5 precise code-level terms, not the user's words. \
+    Always include at least one likely filename in fileHints.
     """
 
   public static func searchQueryPrompt(query: String, fileHints: String) -> String {
-    "Question: \(query)\nProject files: \(fileHints)"
+    "Question: \(query)\nProject files:\n\(fileHints)"
   }
 
   public static let searchSynthesizeSystem = """
     Answer the user's question based on the search results below. \
-    Reference specific files and line numbers. Be concise and direct.
+    Reference specific files and line numbers. \
+    Include the key details they need — names, paths, relevant code snippets. \
+    Be thorough but not verbose.
     """
 
   public static func searchSynthesizePrompt(query: String, hits: String) -> String {
