@@ -10,6 +10,9 @@ import FoundationModels
 public actor Orchestrator {
 
   private let adapter: any LLMAdapter
+
+  /// The display name of the active model backend.
+  public nonisolated var backendName: String { adapter.backendName }
   private let shell: SafeShell
   private let files: FileTools
   private let swiftValidator: SwiftValidator

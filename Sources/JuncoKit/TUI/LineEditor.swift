@@ -65,7 +65,7 @@ public struct FileCompleter: CompletionProvider {
 public struct CommandCompleter: CompletionProvider {
   public static let allCommands = [
     "/clear", "/context", "/files", "/fork", "/forks",
-    "/git", "/help", "/lang", "/metrics", "/notes", "/paste", "/pastes",
+    "/git", "/help", "/lang", "/metrics", "/model", "/notes", "/paste", "/pastes",
     "/reflections", "/session", "/speak", "/undo", "/unfork",
   ]
 

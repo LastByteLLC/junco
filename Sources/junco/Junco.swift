@@ -193,8 +193,51 @@ struct Junco: AsyncParsableCommand {
         print("Supported: afm, ollama, ollama:<model-name>")
         return
       }
+    } else if let saved = ModelPreference.load() {
+      // Saved preference from /model command — try to honor it
+      if saved == "afm" {
+        let afmAvailable = FoundationModels.SystemLanguageModel.default.isAvailable
+        if afmAvailable {
+          let afm = AFMAdapter()
+          await loadLoRAIfNeeded(afm: afm, cwd: cwd)
+          resolvedAdapter = afm
+          isUsingAFM = true
+        } else {
+          // AFM unavailable — fall through to auto-detect
+          FileHandle.standardError.write(Data(
+            "\u{1B}[33m⚠ Saved preference is AFM but Apple Intelligence is unavailable. Falling back.\u{1B}[0m\n".utf8))
+          if let best = await OllamaDetector.autoDetect() {
+            resolvedAdapter = OllamaAdapter(model: best.name)
+            isUsingAFM = false
+          } else {
+            if !checkAppleIntelligence() { return }
+            return  // unreachable but satisfies compiler
+          }
+        }
+      } else if saved.hasPrefix("ollama:") {
+        let modelName = String(saved.dropFirst("ollama:".count))
+        if await OllamaDetector.isRunning() {
+          resolvedAdapter = OllamaAdapter(model: modelName)
+          isUsingAFM = false
+        } else {
+          // Ollama not running — fall back to AFM
+          FileHandle.standardError.write(Data(
+            "\u{1B}[33m⚠ Saved preference is Ollama but server is not running. Using AFM.\u{1B}[0m\n".utf8))
+          if !checkAppleIntelligence() { return }
+          let afm = AFMAdapter()
+          await loadLoRAIfNeeded(afm: afm, cwd: cwd)
+          resolvedAdapter = afm
+          isUsingAFM = true
+        }
+      } else {
+        // Unknown saved preference — ignore, use default
+        let afm = AFMAdapter()
+        await loadLoRAIfNeeded(afm: afm, cwd: cwd)
+        resolvedAdapter = afm
+        isUsingAFM = true
+      }
     } else {
-      // No --model flag: default to AFM, fall back to Ollama if unavailable
+      // No --model flag, no saved preference: default to AFM, fall back to Ollama
       let afmAvailable = FoundationModels.SystemLanguageModel.default.isAvailable
       if afmAvailable {
         let afm = AFMAdapter()
@@ -228,7 +271,7 @@ struct Junco: AsyncParsableCommand {
       }
     }
 
-    let orchestrator = Orchestrator(adapter: resolvedAdapter, workingDirectory: cwd)
+    var orchestrator = Orchestrator(adapter: resolvedAdapter, workingDirectory: cwd)
     if verbose { await orchestrator.setVerbose(true) }
 
     let session = SessionManager(workingDirectory: cwd)
@@ -300,9 +343,10 @@ struct Junco: AsyncParsableCommand {
 
     // Start background services and install signal handlers
     installSignalHandlers()
+    let initialOrchestrator = orchestrator
     Task {
       await notifications.requestAuthorization()
-      await orchestrator.startFileWatcher()
+      await initialOrchestrator.startFileWatcher()
     }
 
     // Line editor with completers
@@ -355,11 +399,11 @@ struct Junco: AsyncParsableCommand {
 
       if trimmed.hasPrefix("/") {
         await handleDirective(
-          trimmed, orchestrator: orchestrator, session: session,
+          trimmed, orchestrator: &orchestrator, session: session,
           sessionStart: sessionStart, persistence: persistence,
           persistedSession: &persistedSession,
           forker: forker, fileTree: fileTree,
-          translator: translator
+          translator: translator, cwd: cwd
         )
         continue
       }
@@ -608,14 +652,15 @@ struct Junco: AsyncParsableCommand {
 
   private func handleDirective(
     _ cmd: String,
-    orchestrator: Orchestrator,
+    orchestrator: inout Orchestrator,
     session: SessionManager,
     sessionStart: Date,
     persistence: SessionPersistence,
     persistedSession: inout PersistedSession,
     forker: ConversationForker,
     fileTree: FileTreeRenderer,
-    translator: TranslationService
+    translator: TranslationService,
+    cwd: String
   ) async {
     let parts = cmd.split(separator: " ", maxSplits: 1)
     let directive = String(parts[0]).lowercased()
@@ -799,9 +844,103 @@ struct Junco: AsyncParsableCommand {
         Terminal.line(Style.dim("Set with: /lang es, /lang fr, /lang de, etc."))
       }
 
+    case "/model":
+      await handleModelSwitch(arg: arg, orchestrator: &orchestrator, cwd: cwd)
+
     default:
       Terminal.line(Style.yellow("Unknown: \(directive)"))
       Terminal.line(Style.dim("Type /help for commands."))
+    }
+  }
+
+  /// Handle /model command — show current backend or switch to another.
+  private func handleModelSwitch(
+    arg: String?,
+    orchestrator: inout Orchestrator,
+    cwd: String
+  ) async {
+    let currentName = orchestrator.backendName
+
+    // No argument: show current model and available options
+    guard let arg, !arg.isEmpty else {
+      Terminal.line("  Current: \(Style.cyan(currentName))")
+      Terminal.line("")
+
+      // Show AFM availability
+      let afmAvailable = FoundationModels.SystemLanguageModel.default.isAvailable
+      Terminal.line("  \(afmAvailable ? "●" : "○") \(Style.bold("afm")) — Apple Foundation Models" +
+        (currentName.contains("Apple") ? Style.dim(" (active)") : ""))
+
+      // Show Ollama availability
+      let ollamaRunning = await OllamaDetector.isRunning()
+      if ollamaRunning {
+        let running = await OllamaDetector.runningModels()
+        let available = await OllamaDetector.availableModels()
+        if !running.isEmpty {
+          for model in running {
+            let active = currentName.contains(model.name)
+            let size = model.parameterSize ?? model.formattedSize
+            Terminal.line("  ● \(Style.bold("ollama:\(model.name)")) — \(size), loaded" +
+              (active ? Style.dim(" (active)") : ""))
+          }
+        }
+        let notRunning = available.filter { avail in !running.contains(where: { $0.name == avail.name }) }
+        for model in notRunning {
+          let size = model.parameterSize ?? model.formattedSize
+          Terminal.line("  ○ \(Style.bold("ollama:\(model.name)")) — \(size)")
+        }
+      } else {
+        Terminal.line("  ○ \(Style.dim("ollama")) — not running")
+      }
+
+      Terminal.line("")
+      let hasPref = ModelPreference.load() != nil
+      Terminal.line(Style.dim("  Switch with: /model afm, /model ollama:<name>"))
+      if hasPref {
+        Terminal.line(Style.dim("  Reset:  /model auto"))
+      }
+      return
+    }
+
+    // Switch to specified model
+    let spec = arg.lowercased()
+    if spec == "afm" {
+      guard FoundationModels.SystemLanguageModel.default.isAvailable else {
+        Terminal.line(Style.yellow("Apple Intelligence is not available on this device."))
+        return
+      }
+      let afm = AFMAdapter()
+      await loadLoRAIfNeeded(afm: afm, cwd: cwd)
+      orchestrator = Orchestrator(adapter: afm, workingDirectory: cwd)
+      if verbose { await orchestrator.setVerbose(true) }
+      ModelPreference.save("afm")
+      Terminal.line(Style.green("Switched to Apple Foundation Models."))
+      Terminal.line(Style.dim("  Model: \(orchestrator.backendName)"))
+    } else if spec.hasPrefix("ollama") {
+      let parts = spec.split(separator: ":", maxSplits: 1)
+      let modelName: String
+      if parts.count == 2 {
+        modelName = String(parts[1])
+      } else {
+        // Auto-detect: prefer running model
+        guard let detected = await OllamaDetector.autoDetect() else {
+          Terminal.line(Style.yellow("Ollama is not running or has no models."))
+          return
+        }
+        modelName = detected.name
+      }
+      let adapter = OllamaAdapter(model: modelName)
+      orchestrator = Orchestrator(adapter: adapter, workingDirectory: cwd)
+      if verbose { await orchestrator.setVerbose(true) }
+      ModelPreference.save("ollama:\(modelName)")
+      Terminal.line(Style.green("Switched to Ollama (\(modelName))."))
+      Terminal.line(Style.dim("  Model: \(orchestrator.backendName)"))
+    } else if spec == "auto" {
+      ModelPreference.clear()
+      Terminal.line(Style.green("Preference cleared. Will auto-detect on next launch."))
+    } else {
+      Terminal.line(Style.yellow("Unknown model: \(arg)"))
+      Terminal.line(Style.dim("Use: /model afm, /model ollama, /model ollama:<name>"))
     }
   }
 
@@ -825,6 +964,7 @@ struct Junco: AsyncParsableCommand {
       ("/git", "Branch and status"),
       ("/context", "Multi-turn context"),
       ("/pastes", "Clipboard paste list"),
+      ("/model [backend]", "Show/switch model (afm, ollama)"),
       ("/help", "This help"),
     ]
     for (cmd, desc) in commands {
