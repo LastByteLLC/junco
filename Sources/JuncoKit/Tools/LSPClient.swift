@@ -204,7 +204,7 @@ public actor LSPClient {
   private func parseSymbolArray(_ obj: [String: Any]) -> [(name: String, kind: String, file: String, line: Int)] {
     // The sendRequest already extracts "result" — try parsing as array items
     // If it's a single symbol, wrap it
-    if let name = obj["name"] as? String {
+    if obj["name"] is String {
       if let parsed = parseSymbolInfo(obj) { return [parsed] }
     }
     return []

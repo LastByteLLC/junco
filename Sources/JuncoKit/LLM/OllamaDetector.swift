@@ -86,10 +86,41 @@ public struct OllamaDetector: Sendable {
     return models.first
   }
 
-  /// Full auto-detection: check if Ollama is running and pick the best model.
+  /// List models currently loaded in Ollama's memory (GET /api/ps).
+  /// These models are warm and ready for instant inference.
+  public static func runningModels(host: String = defaultHost) async -> [OllamaModel] {
+    guard let url = URL(string: "\(host)/api/ps") else { return [] }
+    var request = URLRequest(url: url)
+    request.timeoutInterval = 2
+    do {
+      let (data, response) = try await URLSession.shared.data(for: request)
+      guard (response as? HTTPURLResponse)?.statusCode == 200 else { return [] }
+      let parsed = try JSONDecoder().decode(OllamaPsResponse.self, from: data)
+      return parsed.models.map { model in
+        OllamaModel(
+          name: model.name,
+          size: model.size ?? 0,
+          parameterSize: model.details?.parameterSize
+        )
+      }
+    } catch {
+      return []
+    }
+  }
+
+  /// Full auto-detection: prefer the currently-running model, then fall back to
+  /// preference-ranked selection from downloaded models.
   /// Returns nil if Ollama is not available.
   public static func autoDetect(host: String = defaultHost) async -> OllamaModel? {
     guard await isRunning(host: host) else { return nil }
+
+    // Prefer a model already loaded in memory — it's warm and ready
+    let running = await runningModels(host: host)
+    if let active = running.first {
+      return active
+    }
+
+    // Nothing loaded — pick from downloaded models by preference
     let models = await availableModels(host: host)
     return bestCodingModel(from: models)
   }
@@ -129,6 +160,16 @@ private struct OllamaTagsResponse: Decodable {
 private struct OllamaTagModel: Decodable {
   let name: String
   let size: Int64
+  let details: OllamaModelDetails?
+}
+
+private struct OllamaPsResponse: Decodable {
+  let models: [OllamaPsModel]
+}
+
+private struct OllamaPsModel: Decodable {
+  let name: String
+  let size: Int64?
   let details: OllamaModelDetails?
 }
 

@@ -1,5 +1,6 @@
 // OllamaTests.swift — Tests for OllamaDetector and OllamaAdapter
 
+import Foundation
 import Testing
 @testable import JuncoKit
 
@@ -148,6 +149,108 @@ struct LLMGenerationOptionsTests {
     #expect(opts.maximumResponseTokens == 2000)
     #expect(opts.temperature == 0.7)
   }
+}
+
+@Suite("OllamaDetector Live", .enabled(if: OllamaLiveCheck.available))
+struct OllamaDetectorLiveTests {
+
+  @Test("isRunning returns true when Ollama is up")
+  func isRunning() async {
+    let running = await OllamaDetector.isRunning()
+    #expect(running)
+  }
+
+  @Test("availableModels returns at least one model")
+  func availableModels() async {
+    let models = await OllamaDetector.availableModels()
+    #expect(!models.isEmpty)
+    #expect(models[0].name.count > 0)
+    #expect(models[0].size > 0)
+  }
+
+  @Test("autoDetect finds a model")
+  func autoDetect() async {
+    let model = await OllamaDetector.autoDetect()
+    #expect(model != nil)
+  }
+
+  @Test("runningModels returns loaded models or empty")
+  func runningModels() async {
+    // Just verify it doesn't crash — result depends on what's loaded
+    let models = await OllamaDetector.runningModels()
+    // models may be empty if nothing is loaded, that's fine
+    for model in models {
+      #expect(!model.name.isEmpty)
+    }
+  }
+
+  @Test("autoDetect prefers running model over preference ranking")
+  func autoDetectPrefersRunning() async {
+    // If a model is currently running, autoDetect should return it
+    let running = await OllamaDetector.runningModels()
+    let detected = await OllamaDetector.autoDetect()
+    if let active = running.first {
+      #expect(detected?.name == active.name)
+    }
+  }
+}
+
+@Suite("OllamaAdapter Live", .enabled(if: OllamaLiveCheck.available))
+struct OllamaAdapterLiveTests {
+
+  static var modelName: String {
+    // Use the first available model
+    "gemma4:e2b-it-q4_K_M"
+  }
+
+  @Test("plain text generation works")
+  func plainTextGeneration() async throws {
+    let adapter = OllamaAdapter(model: Self.modelName)
+    let result = try await adapter.generate(prompt: "Reply with exactly one word: hello", system: "You are a helpful assistant. Be extremely brief.")
+    #expect(!result.isEmpty)
+  }
+
+  @Test("streaming generation works")
+  func streamingGeneration() async throws {
+    let adapter = OllamaAdapter(model: Self.modelName)
+    let result = try await adapter.generateStreaming(
+      prompt: "Say hi in one word",
+      system: "Be brief."
+    ) { _ in }
+    #expect(!result.isEmpty)
+  }
+
+  @Test("structured generation produces valid JSON")
+  func structuredGeneration() async throws {
+    let adapter = OllamaAdapter(model: Self.modelName)
+    let result = try await adapter.generateStructured(
+      prompt: "Classify this query: 'fix the login bug'. Return domain as 'swift', taskType as 'fix', complexity as 'simple', mode as 'build', targets as empty array.",
+      system: "You generate JSON matching the requested schema. Output only valid JSON.",
+      as: AgentIntent.self
+    )
+    #expect(!result.taskType.isEmpty)
+    #expect(!result.domain.isEmpty)
+  }
+}
+
+/// Helper to check if Ollama is reachable for conditional test enablement.
+enum OllamaLiveCheck {
+  // Check synchronously by attempting a quick connection.
+  // This runs at test discovery time.
+  static let available: Bool = {
+    guard let url = URL(string: "http://localhost:11434/api/tags") else { return false }
+    var request = URLRequest(url: url)
+    request.timeoutInterval = 1
+    let semaphore = DispatchSemaphore(value: 0)
+    var result = false
+    let task = URLSession.shared.dataTask(with: request) { _, response, _ in
+      result = (response as? HTTPURLResponse)?.statusCode == 200
+      semaphore.signal()
+    }
+    task.resume()
+    semaphore.wait()
+    return result
+  }()
 }
 
 @Suite("WelcomeMessage Model Info")

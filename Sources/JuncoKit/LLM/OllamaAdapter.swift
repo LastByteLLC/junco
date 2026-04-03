@@ -83,8 +83,17 @@ public actor OllamaAdapter: LLMAdapter {
     as type: T.Type,
     options: LLMGenerationOptions? = nil
   ) async throws -> T {
-    // Ask the model to respond in JSON matching the expected structure.
-    let jsonHint = "Respond ONLY with valid JSON. No markdown, no explanation."
+    // Extract the JSON schema from the @Generable type to guide the model
+    let schema = T.generationSchema
+    let schemaJSON: String
+    do {
+      let data = try JSONEncoder().encode(schema)
+      schemaJSON = String(data: data, encoding: .utf8) ?? "{}"
+    } catch {
+      schemaJSON = "{}"
+    }
+
+    let jsonHint = "Respond ONLY with valid JSON matching this exact schema:\n\(schemaJSON)\nNo markdown, no explanation. Only output the JSON object."
     let effectiveSystem = system.map { $0 + "\n" + jsonHint } ?? jsonHint
 
     var body = OllamaChatRequest(
@@ -109,7 +118,7 @@ public actor OllamaAdapter: LLMAdapter {
       let content = try GeneratedContent(json: jsonText)
       return try T(content)
     } catch {
-      throw LLMError.generationFailed("Ollama: structured decode failed for \(T.self): \(error.localizedDescription)")
+      throw LLMError.generationFailed("Ollama: structured decode failed for \(T.self): \(error.localizedDescription)\nJSON was: \(jsonText.prefix(500))")
     }
   }
 

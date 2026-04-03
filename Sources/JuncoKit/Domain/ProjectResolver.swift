@@ -32,7 +32,7 @@ public struct ProjectResolver: Sendable {
   /// Resolve the project root from a starting directory.
   /// Walks up parent directories looking for Swift project markers.
   public static func resolve(from startDir: String) -> Resolution {
-    let fm = FileManager.default
+    _ = FileManager.default
 
     // Check the starting directory first (common case)
     if isProjectRoot(startDir) {

@@ -64,7 +64,7 @@ public actor MockAdapter: LLMAdapter {
   ) async throws -> T {
     let text = try await generate(prompt: prompt, system: system)
     // All @Generable types are also Codable — decode from JSON
-    guard let data = text.data(using: .utf8) else {
+    guard text.data(using: .utf8) != nil else {
       throw LLMError.generationFailed("Mock: invalid UTF-8 response")
     }
     do {
