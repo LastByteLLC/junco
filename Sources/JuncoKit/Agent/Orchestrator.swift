@@ -37,6 +37,8 @@ public actor Orchestrator {
   private var lspStarted = false
 
   private var projectIndex: [IndexEntry] = []
+  private let embeddingIndex = EmbeddingIndex()
+  private var referenceGraph: ReferenceGraph = .empty
   private var needsReindex = true
   private var activeCallbacks: PipelineCallbacks = .none
 
@@ -159,12 +161,27 @@ public actor Orchestrator {
     // Check if file watcher detected external changes
     checkFileWatcher()
 
-    // Build or refresh project index
+    // Build or refresh project index + embedding index + reference graph
     if needsReindex || projectIndex.isEmpty {
       let indexer = FileIndexer(workingDirectory: workingDirectory)
       projectIndex = indexer.indexProject(extensions: domain.fileExtensions)
       needsReindex = false
       debug("Indexed \(projectIndex.count) symbols from \(domain.displayName) project")
+
+      // Build reference graph (uses tree-sitter for type usage extraction)
+      let symIndex = SymbolIndex(entries: projectIndex)
+      let projectFiles = files.listFiles(extensions: domain.fileExtensions)
+      referenceGraph = ReferenceGraph.build(
+        from: symIndex, projectFiles: projectFiles,
+        extractor: TreeSitterExtractor(), fileReader: files
+      )
+      debug("Reference graph: \(referenceGraph.edgeCount) edges")
+
+      // Build embedding index in background (non-blocking)
+      let entries = projectIndex
+      Task.detached(priority: .utility) { [embeddingIndex] in
+        await embeddingIndex.buildIndex(from: entries)
+      }
     }
 
     // Classify
@@ -400,15 +417,30 @@ public actor Orchestrator {
       // Progress callback
       await callbacks.onProgress?(index + 1, totalSteps, step.instruction)
 
-      // Loop detection
+      // Guardrails — deterministic checks between steps (inspired by SWE-Agent)
+
+      // Loop detection: same tool+target repeated
       if lastActions.count >= 2 {
         let prev = lastActions.suffix(2)
         let stepTool = step.tool
         if prev.allSatisfy({ $0.tool == stepTool && $0.target == step.target }) {
-          debug("LOOP detected at step \(index + 1) — breaking")
+          debug("GUARDRAIL: loop detected at step \(index + 1) — breaking")
           memory.addError("Loop detected: repeated \(stepTool) on \(step.target)")
           break
         }
+      }
+
+      // Stuck detection: 3+ consecutive errors → abort
+      if memory.observations.suffix(3).allSatisfy({ $0.outcome == .error }) && memory.observations.count >= 3 {
+        debug("GUARDRAIL: stuck — 3 consecutive errors, aborting")
+        memory.addError("Stuck: 3 consecutive step failures. Try a different approach.")
+        break
+      }
+
+      // Scope check: simple task with too many steps
+      if intent.complexity == "simple" && index >= 3 {
+        debug("GUARDRAIL: simple task exceeded 3 steps, stopping")
+        break
       }
 
       // Execute with retry support
@@ -704,12 +736,28 @@ public actor Orchestrator {
       }
     }
 
-    // 2d: LLM term expansion fallback — only when deterministic search found nothing good.
-    // Most queries with identifiers are handled above. Concept queries ("entry point",
-    // "build target") need the LLM to suggest code-level terms.
-    let hasGoodHits = hits.contains { $0.score >= 5.0 }
+    // 2d: Embedding fallback — concept queries that keyword search missed.
+    // "entry point" matches "CLI entry point" in Junco.swift's comment via NLEmbedding.
+    var hasGoodHits = hits.contains { $0.score >= 5.0 }
+    if !hasGoodHits {
+      let embeddingHits = await embeddingIndex.score(query: query, topK: 5)
+      for (idx, similarity) in embeddingHits where similarity > 0.4 && idx < projectIndex.count {
+        let entry = projectIndex[idx]
+        hits.append(SearchHit(
+          file: entry.filePath, line: entry.lineNumber,
+          snippet: entry.snippet, source: "embedding",
+          score: similarity * 8.0
+        ))
+      }
+      hasGoodHits = hits.contains { $0.score >= 3.0 }
+      if hasGoodHits {
+        debug("SEARCH embedding fallback found \(embeddingHits.count) hits")
+      }
+    }
+
+    // 2e: LLM term expansion fallback — only when BOTH keyword AND embedding search failed.
     if !hasGoodHits && !allTerms.isEmpty {
-      debug("SEARCH fallback: no high-quality hits, trying LLM term expansion")
+      debug("SEARCH fallback: no hits from keyword or embedding, trying LLM term expansion")
       let fileList = files.listFiles().prefix(20).joined(separator: "\n")
       memory.trackCall(estimatedTokens: 600)
       if let expanded = try? await adapter.generateStructured(
@@ -755,6 +803,20 @@ public actor Orchestrator {
         return SearchHit(file: hit.file, line: hit.line, snippet: hit.snippet, source: hit.source, score: hit.score + Double(extraTerms) * 2.0)
       }
       return hit
+    }
+
+    // Step 3c: Reference graph boost — files related to top hits score higher
+    if referenceGraph.edgeCount > 0 {
+      let preliminaryRanked = hits.sorted { $0.score > $1.score }
+      let topFiles = Set(preliminaryRanked.prefix(3).map(\.file))
+      let neighborhood = referenceGraph.neighborhood(of: topFiles)
+      hits = hits.map { hit in
+        if neighborhood.contains(hit.file) && !topFiles.contains(hit.file) {
+          return SearchHit(file: hit.file, line: hit.line, snippet: hit.snippet,
+                           source: hit.source, score: hit.score + 2.0)
+        }
+        return hit
+      }
     }
 
     // Step 4: Rank, deduplicate, format
@@ -1173,14 +1235,21 @@ public actor Orchestrator {
 
   /// Classify the agent mode. Tries ML classifier first, falls back to LLM.
   private func classifyMode(query: String, memory: inout WorkingMemory) async -> AgentMode {
-    // Try ML mode classifier first (~10ms, no LLM call)
+    // Tier 1: Embedding prototype classifier (~5ms, no model file needed)
+    if let embMode = intentClassifier.classifyModeByEmbedding(query),
+       embMode.confidence > 0.85 {
+      debug("Embedding mode classifier: \(embMode.mode) (similarity: \(String(format: "%.2f", embMode.confidence)))")
+      return AgentMode(rawValue: embMode.mode.lowercased()) ?? .build
+    }
+
+    // Tier 2: ML mode classifier (~10ms, needs .mlmodelc)
     if let mlMode = intentClassifier.classifyMode(query),
        mlMode.confidence > Config.mlClassifierConfidence {
       debug("ML mode classifier: \(mlMode.mode) (confidence: \(String(format: "%.2f", mlMode.confidence)))")
       return AgentMode(rawValue: mlMode.mode.lowercased()) ?? .build
     }
 
-    // Fall back to LLM mode classification
+    // Tier 3: LLM fallback (~1-2s, 200 tokens)
     memory.trackCall(estimatedTokens: 200)
     do {
       let result = try await adapter.generateStructured(

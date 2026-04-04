@@ -429,6 +429,203 @@ struct EvalHarness {
         "Should reference Junco.swift where they're wired together",
       ]
     ),
+
+    // --- Tree-sitter symbol extraction validation ---
+
+    EvalCase(
+      name: "search-nested-type",
+      query: "Where is SymbolKind defined?",
+      referencedFiles: [],
+      expectedMode: .search,
+      destructive: false,
+      setup: nil,
+      qualityCriteria: [
+        "Should find FileIndexer.swift (nested enum inside IndexEntry)",
+        "Should list cases: function, type, property, import, file",
+      ]
+    ),
+    EvalCase(
+      name: "search-extension-conformance",
+      query: "What extensions add Codable conformance?",
+      referencedFiles: [],
+      expectedMode: .search,
+      destructive: false,
+      setup: nil,
+      qualityCriteria: [
+        "Should find extensions with Codable in the symbol name",
+        "Should reference GenerableTypes.swift or other files with Codable extensions",
+      ]
+    ),
+    EvalCase(
+      name: "search-init-declarations",
+      query: "Where is the Orchestrator initializer defined?",
+      referencedFiles: [],
+      expectedMode: .search,
+      destructive: false,
+      setup: nil,
+      qualityCriteria: [
+        "Should find Orchestrator.swift",
+        "Should show init parameters (adapter, workingDirectory)",
+      ]
+    ),
+    EvalCase(
+      name: "search-enum-cases",
+      query: "What are the cases of PipelineError?",
+      referencedFiles: [],
+      expectedMode: .search,
+      destructive: false,
+      setup: nil,
+      qualityCriteria: [
+        "Should find GenerableTypes.swift",
+        "Should list cases like contextOverflow, deserializationFailed, toolFailed",
+      ]
+    ),
+    EvalCase(
+      name: "search-typealias",
+      query: "Are there any typealiases in this project?",
+      referencedFiles: [],
+      expectedMode: .search,
+      destructive: false,
+      setup: nil,
+      qualityCriteria: [
+        "Should find any typealias declarations extracted by tree-sitter",
+        "Should give concrete names and locations",
+      ]
+    ),
+
+    // --- Reference graph / cross-file dependency queries ---
+
+    EvalCase(
+      name: "search-depends-on-config",
+      query: "What files use Config?",
+      referencedFiles: [],
+      expectedMode: .search,
+      destructive: false,
+      setup: nil,
+      qualityCriteria: [
+        "Should find multiple files that reference Config",
+        "Should include Orchestrator.swift or FileIndexer.swift",
+        "Reference graph boost should surface related files",
+      ]
+    ),
+    EvalCase(
+      name: "search-depends-on-safeshell",
+      query: "What files depend on SafeShell?",
+      referencedFiles: [],
+      expectedMode: .search,
+      destructive: false,
+      setup: nil,
+      qualityCriteria: [
+        "Should find SafeShell.swift definition",
+        "Should find files that use SafeShell (Orchestrator, BuildRunner, etc.)",
+      ]
+    ),
+    EvalCase(
+      name: "search-cross-file-usage",
+      query: "Where is IndexEntry used outside of FileIndexer?",
+      referencedFiles: [],
+      expectedMode: .search,
+      destructive: false,
+      setup: nil,
+      qualityCriteria: [
+        "Should find SymbolIndex.swift, ContextPacker.swift, or Orchestrator.swift",
+        "Should show how IndexEntry is consumed, not just defined",
+      ]
+    ),
+    EvalCase(
+      name: "search-symbol-index-users",
+      query: "What files use SymbolIndex?",
+      referencedFiles: [],
+      expectedMode: .search,
+      destructive: false,
+      setup: nil,
+      qualityCriteria: [
+        "Should find Orchestrator.swift",
+        "Should find ReferenceGraph.swift",
+        "Should distinguish definition from usage",
+      ]
+    ),
+
+    // --- Queries that benefit from combined tree-sitter + reference graph ---
+
+    EvalCase(
+      name: "search-afm-adapter-callers",
+      query: "What code calls AFMAdapter?",
+      referencedFiles: [],
+      expectedMode: .search,
+      destructive: false,
+      setup: nil,
+      qualityCriteria: [
+        "Should find Orchestrator.swift as primary consumer",
+        "Should find EvalHarness.swift or Junco.swift where it's instantiated",
+      ]
+    ),
+    EvalCase(
+      name: "search-pipeline-callbacks",
+      query: "Where are PipelineCallbacks created and consumed?",
+      referencedFiles: [],
+      expectedMode: .search,
+      destructive: false,
+      setup: nil,
+      qualityCriteria: [
+        "Should find PipelineCallbacks.swift (definition)",
+        "Should find Junco.swift or EvalHarness.swift (creation)",
+        "Should find Orchestrator.swift (consumption via run())",
+      ]
+    ),
+    EvalCase(
+      name: "search-tree-sitter-integration",
+      query: "How does tree-sitter integrate with the indexing pipeline?",
+      referencedFiles: [],
+      expectedMode: .search,
+      destructive: false,
+      setup: nil,
+      qualityCriteria: [
+        "Should find TreeSitterExtractor.swift",
+        "Should find FileIndexer.swift where tree-sitter is called",
+        "Should mention the fallback to regex extraction",
+      ]
+    ),
+    EvalCase(
+      name: "search-reference-graph-build",
+      query: "How is the reference graph built?",
+      referencedFiles: [],
+      expectedMode: .search,
+      destructive: false,
+      setup: nil,
+      qualityCriteria: [
+        "Should find ReferenceGraph.swift",
+        "Should mention SymbolIndex and TreeSitterExtractor as inputs",
+        "Should describe the build() method",
+      ]
+    ),
+
+    // --- Property-level queries (tree-sitter depth handling) ---
+
+    EvalCase(
+      name: "search-property-lookup",
+      query: "Where is bashTimeout defined?",
+      referencedFiles: [],
+      expectedMode: .search,
+      destructive: false,
+      setup: nil,
+      qualityCriteria: [
+        "Should find Config.swift",
+        "Should show the property declaration with its value",
+      ]
+    ),
+    EvalCase(
+      name: "search-static-property",
+      query: "Where is the empty reference graph defined?",
+      referencedFiles: [],
+      expectedMode: .search,
+      destructive: false,
+      setup: nil,
+      qualityCriteria: [
+        "Should find ReferenceGraph.swift",
+        "Should show static let empty = ReferenceGraph(...)",
+      ]
+    ),
   ]
 
   static let destructiveCases: [EvalCase] = [
@@ -480,6 +677,30 @@ struct EvalHarness {
     reportPath: String? = nil
   ) async -> String {
     let adapter = AFMAdapter()
+    // Load LoRA adapter if available
+    let adapterPaths = [
+      URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".junco/models/junco_coding_v4.fmadapter"),
+      URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".junco/models/junco_coding.fmadapter"),
+      URL(fileURLWithPath: "Training/lora/export/junco_coding.fmadapter"),
+    ]
+    for path in adapterPaths {
+      if FileManager.default.fileExists(atPath: path.appendingPathComponent("adapter_weights.bin").path) {
+        await adapter.loadAdapter(from: path)
+        if await adapter.hasAdapter {
+          print("LoRA adapter loaded: \(path.lastPathComponent)")
+          break
+        }
+      }
+    }
+    if await !adapter.hasAdapter {
+      await adapter.loadAdapter()  // Try registered name fallback
+      if await adapter.hasAdapter {
+        print("LoRA adapter loaded (registered name)")
+      } else {
+        print("⚠ No LoRA adapter — running with base model")
+      }
+    }
+
     var cases = Self.nonDestructiveCases
     if includeDestructive {
       cases += Self.destructiveCases

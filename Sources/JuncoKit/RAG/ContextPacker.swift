@@ -23,9 +23,15 @@ public struct ContextPacker: Sendable {
     budget: Int = 800,
     preferredFiles: [String] = []
   ) -> String {
-    // Score and rank entries
+    // Pre-compute BM25 statistics
+    let queryTerms = tokenize(query)
+    let idf = computeIDF(queryTerms: queryTerms, index: index)
+    let totalTerms = index.reduce(0) { $0 + tokenize($1.symbolName + " " + $1.snippet).count }
+    let avgDocLen = index.isEmpty ? 1.0 : Double(totalTerms) / Double(index.count)
+
+    // Score and rank entries using BM25
     var scored = index.map { entry in
-      (entry: entry, score: score(entry: entry, query: query, preferredFiles: preferredFiles))
+      (entry: entry, score: score(entry: entry, query: query, preferredFiles: preferredFiles, idf: idf, avgDocLen: avgDocLen))
     }
     scored.sort { $0.score > $1.score }
 
@@ -64,50 +70,95 @@ public struct ContextPacker: Sendable {
     return packed.isEmpty ? "(no relevant code found)" : packed
   }
 
-  // MARK: - Keyword Scoring (BM25-inspired)
+  // MARK: - BM25 Scoring
 
-  /// Score an index entry against a query. Higher = more relevant.
+  // BM25 parameters
+  private static let k1 = 1.2   // Term frequency saturation
+  private static let b = 0.75   // Document length normalization
+
+  // Field weights: symbol name matches matter most
+  private static let nameWeight = 3.0
+  private static let pathWeight = 2.0
+  private static let snippetWeight = 1.0
+
+  /// Score an index entry against a query using BM25 with field weights.
   private func score(
     entry: IndexEntry,
     query: String,
-    preferredFiles: [String]
+    preferredFiles: [String],
+    idf: [String: Double],
+    avgDocLen: Double
   ) -> Double {
     let queryTerms = tokenize(query)
-    let entryTerms = tokenize(entry.symbolName + " " + entry.snippet + " " + entry.filePath)
+    let nameTerms = tokenize(entry.symbolName)
+    let pathTerms = tokenize(entry.filePath)
+    let snippetTerms = tokenize(entry.snippet)
 
-    var matchScore = 0.0
+    // Document length for normalization
+    let docLen = Double(nameTerms.count + pathTerms.count + snippetTerms.count)
+
+    var score = 0.0
     for term in queryTerms {
-      if entryTerms.contains(term) {
-        matchScore += 1.0
-      }
-      // Partial match bonus (prefix)
-      if entryTerms.contains(where: { $0.hasPrefix(term) || term.hasPrefix($0) }) {
-        matchScore += 0.5
+      let termIdf = idf[term] ?? 0.1
+
+      // Count term frequency in each field
+      let nameTf = nameTerms.contains(term) ? 1.0 : 0.0
+      let pathTf = pathTerms.contains(term) ? 1.0 : 0.0
+      let snippetTf = snippetTerms.contains(term) ? 1.0 : 0.0
+
+      // Weighted TF across fields
+      let weightedTf = nameTf * Self.nameWeight + pathTf * Self.pathWeight + snippetTf * Self.snippetWeight
+
+      // BM25 TF normalization
+      let tfNorm = (weightedTf * (Self.k1 + 1)) /
+        (weightedTf + Self.k1 * (1 - Self.b + Self.b * docLen / max(1, avgDocLen)))
+
+      score += termIdf * tfNorm
+
+      // Prefix match bonus (smaller than exact)
+      if nameTerms.contains(where: { $0.hasPrefix(term) || term.hasPrefix($0) }) {
+        score += termIdf * 0.3
       }
     }
 
     // Boost for preferred files
     if preferredFiles.contains(entry.filePath) {
-      matchScore += 3.0
+      score += 3.0
     }
 
-    // Boost for types and functions over imports
+    // Kind boost
     switch entry.kind {
-    case .function: matchScore *= 1.5
-    case .type: matchScore *= 1.3
-    case .file: matchScore *= 1.0
-    case .property: matchScore *= 1.2
-    case .import: matchScore *= 0.3
+    case .function: score *= 1.5
+    case .type: score *= 1.3
+    case .property: score *= 1.2
+    case .file: score *= 1.0
+    case .import: score *= 0.3
     }
 
-    return matchScore
+    return score
+  }
+
+  /// Pre-compute IDF (inverse document frequency) for query terms.
+  /// Rare terms get higher weight — "Orchestrator" matters more than "func".
+  private func computeIDF(queryTerms: Set<String>, index: [IndexEntry]) -> [String: Double] {
+    let n = Double(index.count)
+    var idf: [String: Double] = [:]
+    for term in queryTerms {
+      let df = Double(index.filter { entry in
+        let text = (entry.symbolName + " " + entry.snippet + " " + entry.filePath).lowercased()
+        return text.contains(term)
+      }.count)
+      idf[term] = log((n - df + 0.5) / (df + 0.5) + 1.0)
+    }
+    return idf
   }
 
   /// Simple tokenizer: lowercase, split on non-alphanumeric, filter short tokens.
   private func tokenize(_ text: String) -> Set<String> {
-    let words = text.lowercased()
-      .components(separatedBy: CharacterSet.alphanumerics.inverted)
-      .filter { $0.count > 2 }
-    return Set(words)
+    Set(
+      text.lowercased()
+        .components(separatedBy: CharacterSet.alphanumerics.inverted)
+        .filter { $0.count > 2 }
+    )
   }
 }

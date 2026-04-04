@@ -32,11 +32,11 @@ public enum AdapterManifest {
     AdapterRelease(
       osVersion: "26",
       baseModelSignature: "9799725ff8e851184037110b422d891ad3b92ec1",
-      weightsURL: URL(string: "https://github.com/LastByteLLC/junco/releases/download/v0.4.1-lora/adapter_weights.bin")!,
-      metadataURL: URL(string: "https://github.com/LastByteLLC/junco/releases/download/v0.4.1-lora/metadata.json")!,
-      weightsSHA256: "da9e40fbfbcf6bf336b99d798c3c31d035acd55fc551c6905a9d35c121f26c87",
-      metadataSHA256: "c967335ca17bee8e2c8115dc4cfe21980b5bbf158b6faf2e2285c3250784e7d4",
-      description: "Junco v2: 10K samples, epoch 2 (eval loss 0.342)"
+      weightsURL: URL(string: "https://github.com/LastByteLLC/junco/releases/download/v0.5.0-lora/adapter_weights.bin")!,
+      metadataURL: URL(string: "https://github.com/LastByteLLC/junco/releases/download/v0.5.0-lora/metadata.json")!,
+      weightsSHA256: "81296e0a3ca3e2fd78715c71c58d4d9258609a13374d68eaff5c6afe4944300c",
+      metadataSHA256: "7a313fea980e7cd5fd77bfe60d5bce81b3eb1ec7aaf786295c85b1489c859cc7",
+      description: "Junco v3: 10,247 samples, epoch 2, val_loss 0.395"
     ),
   ]
 

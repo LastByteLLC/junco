@@ -28,28 +28,41 @@ public struct FileIndexer: Sendable {
   }
 
   /// Index all source files in the project.
+  /// Uses tree-sitter AST parsing for Swift files, with regex fallback.
   public func indexProject(
     extensions: [String] = ["swift"],
     maxFiles: Int = Config.maxIndexFiles
   ) -> [IndexEntry] {
     let ft = FileTools(workingDirectory: workingDirectory)
     let files = ft.listFiles(extensions: extensions, maxFiles: maxFiles)
+    let treeSitter = TreeSitterExtractor()
     var entries: [IndexEntry] = []
 
     for file in files {
-      guard let content = try? ft.read(path: file, maxTokens: 2000) else { continue }
+      guard let content = try? ft.read(path: file, maxTokens: 5000) else { continue }
       let ext = (file as NSString).pathExtension
 
-      // Add file-level entry
-      let firstLine = content.prefix(while: { $0 != "\n" })
-      entries.append(IndexEntry(
-        filePath: file, symbolName: file, kind: .file,
-        lineNumber: 1, snippet: String(firstLine)
-      ))
-
-      // Extract symbols
       if ext == "swift" {
-        entries.append(contentsOf: extractSwiftSymbols(from: content, file: file))
+        // Try tree-sitter first (handles nested types, generics, etc.)
+        let tsEntries = treeSitter.extract(from: content, file: file)
+        if !tsEntries.isEmpty {
+          entries.append(contentsOf: tsEntries)
+        } else {
+          // Fallback to regex if tree-sitter fails
+          let firstLine = content.prefix(while: { $0 != "\n" })
+          entries.append(IndexEntry(
+            filePath: file, symbolName: file, kind: .file,
+            lineNumber: 1, snippet: String(firstLine)
+          ))
+          entries.append(contentsOf: extractSwiftSymbols(from: content, file: file))
+        }
+      } else {
+        // Non-Swift files: file-level entry only
+        let firstLine = content.prefix(while: { $0 != "\n" })
+        entries.append(IndexEntry(
+          filePath: file, symbolName: file, kind: .file,
+          lineNumber: 1, snippet: String(firstLine)
+        ))
       }
     }
 
