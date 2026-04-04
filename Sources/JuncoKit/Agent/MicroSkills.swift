@@ -156,6 +156,17 @@ public struct SkillLoader: Sendable {
         tools: nil, maxSteps: nil
       ),
       MicroSkill(
+        name: "swift-networking",
+        domain: "swift", taskTypes: ["add", "fix"],
+        hint: """
+          URLSession pattern: let (data, _) = try await URLSession.shared.data(from: url). \
+          JSON decode: try JSONDecoder().decode(T.self, from: data). \
+          Raw JSON: try JSONSerialization.jsonObject(with: data) as? [String: Any]. \
+          Do NOT use withCheckedThrowingContinuation for URLSession — use async/await directly.
+          """,
+        tools: nil, maxSteps: nil
+      ),
+      MicroSkill(
         name: "swiftui-patterns",
         domain: "swift", taskTypes: ["add", "fix", "refactor"],
         hint: """
@@ -164,7 +175,9 @@ public struct SkillLoader: Sendable {
           Use .task {} not .onAppear for async work. Prefer value types. \
           IMPORTANT: Use @Observable, NOT ObservableObject. @Observable does NOT use @Published — \
           properties are tracked automatically. Use @ObservationIgnored to opt out. \
-          NavigationStack (not NavigationView). FormatStyle (not DateFormatter).
+          NavigationStack (not NavigationView). FormatStyle (not DateFormatter). \
+          NavigationStack with .navigationDestination(for: Type.self) { item in DetailView(item: item) }. \
+          Use NavigationLink(value: item) inside ForEach, not NavigationLink(destination:).
           """,
         tools: nil, maxSteps: nil
       ),

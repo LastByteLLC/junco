@@ -1211,6 +1211,23 @@ public actor Orchestrator {
     "setsumei": "explain", "naoshite": "fix",
   ]
 
+  /// First words that unambiguously imply build mode (file-modifying action).
+  private static let buildModeKeywords: Set<String> = [
+    "create", "add", "fix", "edit", "implement", "write", "build",
+    "refactor", "test", "delete", "remove", "rename", "update",
+    // Spanish
+    "crea", "arregla", "corrige", "añade", "agrega",
+    // French
+    "ajoute", "crée", "répare",
+    // German
+    "erstelle", "füge", "behebe",
+  ]
+
+  /// Task types that imply build mode (post-classification guard).
+  private static let buildTaskTypes: Set<String> = [
+    "add", "fix", "refactor", "test",
+  ]
+
   /// Classify the agent mode. Tries ML classifier first, falls back to LLM.
   private func classifyMode(query: String, memory: inout WorkingMemory) async -> AgentMode {
     // Tier 1: Embedding prototype classifier (~5ms, no model file needed)
@@ -1262,33 +1279,85 @@ public actor Orchestrator {
         targets = explicitTargets
       } else {
         let fileList = files.listFiles()
-        let matched = fileList.filter { path in
+        // 1. Basename matching (existing files whose name appears in query)
+        var matched = fileList.filter { path in
           query.lowercased().contains((path as NSString).lastPathComponent.lowercased())
+        }
+        // 2. Full-path matching (e.g. "Sources/PodcastApp/Models.swift")
+        for file in fileList where query.contains(file) && !matched.contains(file) {
+          matched.append(file)
+        }
+        // 3. Regex for .swift paths mentioned in query (may be new files to create)
+        if let regex = try? NSRegularExpression(pattern: #"(?:Sources|Tests)/[\w/]+\.swift"#) {
+          let range = NSRange(query.startIndex..., in: query)
+          for match in regex.matches(in: query, range: range) {
+            if let r = Range(match.range, in: query) {
+              let path = String(query[r])
+              if !matched.contains(path) { matched.append(path) }
+            }
+          }
         }
         targets = matched.isEmpty ? Array(fileList.prefix(3)) : matched
       }
 
-      // ML classifier handles taskType but doesn't know modes.
-      // Use a small dedicated LLM call for mode classification.
-      let detectedMode = await classifyMode(query: query, memory: &memory)
-      debug("Mode classification: \(detectedMode.rawValue)")
+      // Determine mode: keyword short-circuit for unambiguous build verbs
+      let detectedMode: AgentMode
+      if Self.buildModeKeywords.contains(firstWord) {
+        detectedMode = .build
+        debug("Mode: build (keyword override: \(firstWord))")
+      } else {
+        detectedMode = await classifyMode(query: query, memory: &memory)
+        debug("Mode classification: \(detectedMode.rawValue)")
+      }
+
+      // Post-classification guard: build-type task + answer mode → likely misclassification
+      let finalMode: AgentMode
+      if Self.buildTaskTypes.contains(finalLabel) && detectedMode == .answer {
+        finalMode = .build
+        debug("Mode override: answer → build (taskType \(finalLabel) implies build)")
+      } else {
+        finalMode = detectedMode
+      }
 
       return AgentIntent(
         domain: domain.kind.rawValue, taskType: finalLabel,
         complexity: targets.count > 2 ? "moderate" : "simple",
-        mode: detectedMode.rawValue, targets: targets
+        mode: finalMode.rawValue, targets: targets
       )
     }
 
     debug("ML classifier: low confidence, falling back to LLM")
+
+    // Keyword mode short-circuit: skip LLM mode classification for obvious build verbs
+    if Self.buildModeKeywords.contains(firstWord) {
+      debug("Mode: build (keyword override: \(firstWord), skipping LLM mode classification)")
+    }
+
     let fileList = files.listFiles().prefix(25).joined(separator: "\n")
     let prompt = Prompts.classifyPrompt(
       query: query, fileHints: TokenBudget.truncate(fileList, toTokens: 150)
     )
     memory.trackCall(estimatedTokens: TokenBudget.classify.total)
-    return try await adapter.generateStructured(
+    var intent = try await adapter.generateStructured(
       prompt: prompt, system: Prompts.classifySystem, as: AgentIntent.self
     )
+
+    // Post-classification guards for LLM fallback
+    if Self.buildModeKeywords.contains(firstWord) && intent.agentMode == .answer {
+      intent = AgentIntent(
+        domain: intent.domain, taskType: intent.taskType,
+        complexity: intent.complexity, mode: "build", targets: intent.targets
+      )
+      debug("Mode override: answer → build (keyword: \(firstWord))")
+    } else if Self.buildTaskTypes.contains(intent.taskType) && intent.agentMode == .answer {
+      intent = AgentIntent(
+        domain: intent.domain, taskType: intent.taskType,
+        complexity: intent.complexity, mode: "build", targets: intent.targets
+      )
+      debug("Mode override: answer → build (taskType \(intent.taskType) implies build)")
+    }
+
+    return intent
   }
 
   private func plan(
@@ -1422,7 +1491,7 @@ public actor Orchestrator {
     }
 
     do {
-      let system = "Output the complete modified file. No markdown fences, no explanation. \(domain.promptHint)"
+      let system = Prompts.editSystem(domain: domain)
       memory.trackCall(estimatedTokens: TokenBudget.execute.total)
       var newContent = try await adapter.generate(prompt: task.specification, system: system)
       newContent = linter.cleanPlainTextOutput(newContent, filePath: target)

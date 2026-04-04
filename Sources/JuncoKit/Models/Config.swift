@@ -36,7 +36,7 @@ public enum Config {
   public static let bashTimeout: TimeInterval = 30
 
   /// Maximum retries when code validation (Swift) fails.
-  public static let maxValidationRetries = 2
+  public static let maxValidationRetries = 1
 
   /// Whether to sandbox bash commands via sandbox-exec.
   public static let sandboxEnabled = true

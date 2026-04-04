@@ -146,16 +146,26 @@ struct Junco: AsyncParsableCommand {
   }
 
   func run() async throws {
-    // Resolve project root — walk up from cwd if in a subdirectory
-    let resolution = ProjectResolver.resolve(from: self.cwd)
-    let cwd = resolution.path
-
-    if resolution.wasAutoDetected {
-      FileHandle.standardError.write(Data(
-        "\u{1B}[2mℹ Detected project root: \(cwd)\u{1B}[0m\n".utf8))
-    } else if !resolution.hasProjectMarkers && !pipe {
-      FileHandle.standardError.write(Data(
-        "\u{1B}[33m⚠ No Swift project detected. Create Package.swift or run from a project directory.\u{1B}[0m\n".utf8))
+    // Resolve project root
+    let cwd: String
+    if directory != nil {
+      // User explicitly specified --directory: respect it as the project root
+      cwd = self.cwd
+      if !ProjectResolver.isProjectRoot(cwd) && !pipe {
+        FileHandle.standardError.write(Data(
+          "\u{1B}[33m⚠ No Swift project detected in \(cwd). Create Package.swift or *.xcodeproj.\u{1B}[0m\n".utf8))
+      }
+    } else {
+      // No --directory: walk up from current directory to find project root
+      let resolution = ProjectResolver.resolve(from: self.cwd)
+      cwd = resolution.path
+      if resolution.wasAutoDetected {
+        FileHandle.standardError.write(Data(
+          "\u{1B}[2mℹ Detected project root: \(cwd)\u{1B}[0m\n".utf8))
+      } else if !resolution.hasProjectMarkers && !pipe {
+        FileHandle.standardError.write(Data(
+          "\u{1B}[33m⚠ No Swift project detected. Create Package.swift or run from a project directory.\u{1B}[0m\n".utf8))
+      }
     }
 
     // --- Resolve backend ---

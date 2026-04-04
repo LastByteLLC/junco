@@ -96,6 +96,15 @@ public struct IntentClassifier: @unchecked Sendable {
       "delete the old migration", "rename the variable", "update the README",
       "fix the memory leak", "change the return type", "extract into a protocol",
       "needs error handling", "missing import",
+      // Longer prompts matching real usage patterns
+      "create a Package.swift file for the app",
+      "create the data models file Sources/Models.swift",
+      "edit the view to add a search bar",
+      "fix the build errors in the service layer",
+      "add a new property to the Podcast model",
+      "implement the fetch method using URLSession",
+      "write a service that calls the iTunes API",
+      "create Sources/PodcastApp/PlayerView.swift with a play button",
     ],
     "answer": [
       // Search queries

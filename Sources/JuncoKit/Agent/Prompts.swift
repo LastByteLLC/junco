@@ -136,6 +136,13 @@ public enum Prompts {
     }
   }
 
+  /// System prompt for file editing, tailored to the project domain.
+  public static func editSystem(domain: DomainConfig) -> String {
+    "Output the complete modified file. No markdown fences, no explanation. " +
+    "Apply ONLY the requested changes — do not add or modify anything else. " +
+    domain.promptHint
+  }
+
   public static let observeSystem = """
     Summarize this tool output concisely. Extract key facts relevant to the task.
     """

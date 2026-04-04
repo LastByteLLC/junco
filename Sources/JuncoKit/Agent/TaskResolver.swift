@@ -208,6 +208,10 @@ public struct TaskResolver: Sendable {
       spec += "\nProject context:\n\(context)\n"
     }
 
+    spec += "\nIMPORTANT: Apply ONLY the changes described in the user request. "
+    spec += "Do not add unrequested properties, methods, or imports. "
+    spec += "If the request lists specific items, implement ALL of them.\n"
+
     return spec
   }
 
