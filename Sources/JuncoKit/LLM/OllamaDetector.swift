@@ -124,6 +124,50 @@ public struct OllamaDetector: Sendable {
     let models = await availableModels(host: host)
     return bestCodingModel(from: models)
   }
+
+  /// Query the actual context window size for a model via POST /api/show.
+  /// Returns nil if the query fails; caller should fall back to a sensible default.
+  public static func contextSize(for modelName: String, host: String = defaultHost) async -> Int? {
+    guard let url = URL(string: "\(host)/api/show") else { return nil }
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.timeoutInterval = 5
+    request.httpBody = try? JSONEncoder().encode(["name": modelName])
+
+    do {
+      let (data, response) = try await URLSession.shared.data(for: request)
+      guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+
+      // The response has model_info with context length, or parameters with num_ctx
+      if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+        // Check model_info for architecture-level context length
+        if let modelInfo = json["model_info"] as? [String: Any] {
+          // Keys vary by architecture but typically end in ".context_length"
+          for (key, value) in modelInfo {
+            if key.contains("context_length"), let ctx = value as? Int, ctx > 0 {
+              return ctx
+            }
+          }
+        }
+        // Check parameters string for num_ctx
+        if let params = json["parameters"] as? String {
+          for line in params.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("num_ctx") {
+              let parts = trimmed.split(separator: " ")
+              if parts.count >= 2, let ctx = Int(parts.last ?? "") {
+                return ctx
+              }
+            }
+          }
+        }
+      }
+      return nil
+    } catch {
+      return nil
+    }
+  }
 }
 
 // MARK: - Models

@@ -184,11 +184,14 @@ struct Junco: AsyncParsableCommand {
         // Parse "ollama" or "ollama:modelname"
         let parts = modelSpec.split(separator: ":", maxSplits: 1)
         if parts.count == 2 {
-          resolvedAdapter = OllamaAdapter(model: String(parts[1]))
+          let modelName = String(parts[1])
+          let ctx = await OllamaDetector.contextSize(for: modelName) ?? 4096
+          resolvedAdapter = OllamaAdapter(model: modelName, contextSize: ctx)
         } else {
           // No model specified — auto-detect best model
           if let best = await OllamaDetector.autoDetect() {
-            resolvedAdapter = OllamaAdapter(model: best.name)
+            let ctx = await OllamaDetector.contextSize(for: best.name) ?? 4096
+            resolvedAdapter = OllamaAdapter(model: best.name, contextSize: ctx)
             FileHandle.standardError.write(Data(
               "\u{1B}[2mℹ Auto-selected Ollama model: \(best.name)\u{1B}[0m\n".utf8))
           } else {
@@ -217,7 +220,8 @@ struct Junco: AsyncParsableCommand {
           FileHandle.standardError.write(Data(
             "\u{1B}[33m⚠ Saved preference is AFM but Apple Intelligence is unavailable. Falling back.\u{1B}[0m\n".utf8))
           if let best = await OllamaDetector.autoDetect() {
-            resolvedAdapter = OllamaAdapter(model: best.name)
+            let ctx = await OllamaDetector.contextSize(for: best.name) ?? 4096
+            resolvedAdapter = OllamaAdapter(model: best.name, contextSize: ctx)
             isUsingAFM = false
           } else {
             if !checkAppleIntelligence() { return }
@@ -227,7 +231,8 @@ struct Junco: AsyncParsableCommand {
       } else if saved.hasPrefix("ollama:") {
         let modelName = String(saved.dropFirst("ollama:".count))
         if await OllamaDetector.isRunning() {
-          resolvedAdapter = OllamaAdapter(model: modelName)
+          let ctx = await OllamaDetector.contextSize(for: modelName) ?? 4096
+          resolvedAdapter = OllamaAdapter(model: modelName, contextSize: ctx)
           isUsingAFM = false
         } else {
           // Ollama not running — fall back to AFM
@@ -259,7 +264,8 @@ struct Junco: AsyncParsableCommand {
         if let best = await OllamaDetector.autoDetect() {
           FileHandle.standardError.write(Data(
             "\u{1B}[33m⚠ Apple Intelligence unavailable. Using Ollama (\(best.name)).\u{1B}[0m\n".utf8))
-          resolvedAdapter = OllamaAdapter(model: best.name)
+          let ctx = await OllamaDetector.contextSize(for: best.name) ?? 4096
+          resolvedAdapter = OllamaAdapter(model: best.name, contextSize: ctx)
           isUsingAFM = false
         } else {
           // Neither AFM nor Ollama available
@@ -950,7 +956,8 @@ struct Junco: AsyncParsableCommand {
         }
         modelName = detected.name
       }
-      let adapter = OllamaAdapter(model: modelName)
+      let ctx = await OllamaDetector.contextSize(for: modelName) ?? 4096
+      let adapter = OllamaAdapter(model: modelName, contextSize: ctx)
       orchestrator = Orchestrator(adapter: adapter, workingDirectory: cwd)
       if verbose { await orchestrator.setVerbose(true) }
       ModelPreference.save("ollama:\(modelName)")
