@@ -190,12 +190,36 @@ public struct TaskResolver: Sendable {
       spec += "\nIMPORTANT: Use these exact URLs: \(urls.joined(separator: ", "))\n"
     }
 
-    // Add style hint based on existing similar files
-    if target.hasSuffix("View.swift"), let existingView = snapshot.views.first {
-      spec += "\nFollow the patterns in \(existingView.file).\n"
+    // Add role-based exemplar for non-template files (primarily views)
+    if let exemplar = Self.exemplar(for: MicroSkill.inferFileRole(target)) {
+      spec += "\n\(exemplar)\n"
     }
 
     return spec
+  }
+
+  /// Compact, correct exemplar for a file role. Gives the LLM a pattern to follow.
+  static func exemplar(for role: String) -> String? {
+    switch role {
+    case "view":
+      return """
+        // PATTERN — follow this structure:
+        // struct XView: View {
+        //   var viewModel: XViewModel
+        //   var body: some View {
+        //     NavigationStack {
+        //       List(viewModel.items) { item in
+        //         NavigationLink(value: item) { Text(item.name) }
+        //       }
+        //       .navigationTitle("Title")
+        //       .task { await viewModel.load() }
+        //     }
+        //   }
+        // }
+        """
+    default:
+      return nil
+    }
   }
 
   /// Build a rich specification for file editing.

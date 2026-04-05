@@ -18,6 +18,7 @@ public struct PostGenerationLinter: Sendable {
     result = fixStateObjectWithObservable(result)
     result = fixNavigationView(result)
     result = fixHallucinatedModifiers(result)
+    result = fixCallbackChimera(result)
     result = fixMissingImports(result)
     result = fixXCTestToSwiftTesting(result)
     return result
@@ -80,6 +81,96 @@ public struct PostGenerationLinter: Sendable {
       options: .regularExpression
     )
     return result
+  }
+
+  /// Rewrite callback chimera patterns to proper async/await.
+  /// Detects: `service.method(...) { result in self.x = result.y }` or `{ result in ... }`
+  /// Rewrites to: `do { self.x = try await service.method(...) } catch { print(error) }`
+  private func fixCallbackChimera(_ content: String) -> String {
+    // Only apply to files with async functions (ViewModels, controllers)
+    guard content.contains("async") else { return content }
+
+    var lines = content.components(separatedBy: "\n")
+    var i = 0
+    while i < lines.count {
+      let line = lines[i].trimmingCharacters(in: .whitespaces)
+
+      // Pattern: `something.method(args) { result in` or `try await something.method(args) { result in`
+      // Detect trailing closure after a method call
+      if line.contains("{ result in") || line.contains("{ response in") || line.contains("{ data in"),
+         let callRange = line.range(of: #"(try\s+await\s+)?(\S+\.\S+\([^)]*\))\s*\{"#, options: .regularExpression) {
+
+        // Extract the method call (before the closure)
+        let beforeClosure = line[callRange]
+        let callStr = String(beforeClosure)
+          .replacingOccurrences(of: #"\s*\{$"#, with: "", options: .regularExpression)
+          .trimmingCharacters(in: .whitespaces)
+
+        // Ensure it has try await
+        let asyncCall: String
+        if callStr.hasPrefix("try await") {
+          asyncCall = callStr
+        } else if callStr.hasPrefix("try") {
+          asyncCall = callStr.replacingOccurrences(of: "try ", with: "try await ")
+        } else {
+          asyncCall = "try await \(callStr)"
+        }
+
+        // Find the closing brace of the callback and extract assignments
+        var assignTarget: String?
+        var closingBrace = -1
+        for j in (i + 1)..<min(i + 15, lines.count) {
+          let inner = lines[j].trimmingCharacters(in: .whitespaces)
+          // Look for `self.x = result.y` or `self.x = result`
+          if inner.hasPrefix("self.") && inner.contains("= result") {
+            let parts = inner.split(separator: "=", maxSplits: 1)
+            if parts.count >= 1 {
+              assignTarget = String(parts[0]).trimmingCharacters(in: .whitespaces)
+            }
+          }
+          if inner == "}" || inner.hasPrefix("}") {
+            closingBrace = j
+            break
+          }
+        }
+
+        guard closingBrace > i else { i += 1; continue }
+
+        let indent = String(lines[i].prefix(while: { $0 == " " || $0 == "\t" }))
+
+        // Build replacement
+        var replacement: [String] = []
+        if let target = assignTarget {
+          replacement.append("\(indent)do {")
+          replacement.append("\(indent)    \(target) = \(asyncCall)")
+          replacement.append("\(indent)} catch {")
+          replacement.append("\(indent)    print(\"\\(error)\")")
+          replacement.append("\(indent)}")
+        } else {
+          // No clear assignment — just call it
+          replacement.append("\(indent)do {")
+          replacement.append("\(indent)    _ = \(asyncCall)")
+          replacement.append("\(indent)} catch {")
+          replacement.append("\(indent)    print(\"\\(error)\")")
+          replacement.append("\(indent)}")
+        }
+
+        // Also carry forward any lines after the assignment that aren't the closing brace
+        // (like `self.isLoading = false`)
+        for j in (i + 1)..<closingBrace {
+          let inner = lines[j].trimmingCharacters(in: .whitespaces)
+          if inner.hasPrefix("self.") && !inner.contains("= result") {
+            replacement.append("\(indent)\(inner)")
+          }
+        }
+
+        lines.replaceSubrange(i...closingBrace, with: replacement)
+        i += replacement.count
+        continue
+      }
+      i += 1
+    }
+    return lines.joined(separator: "\n")
   }
 
   /// Remove type declarations that duplicate existing project types.

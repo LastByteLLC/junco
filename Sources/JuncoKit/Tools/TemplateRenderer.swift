@@ -97,6 +97,53 @@ public struct SwiftTestIntent: Codable, Sendable {
   @Guide(description: "Brief description of what each test checks") public var testDescriptions: [String]
 }
 
+// MARK: - Model File
+
+@Generable
+public struct ModelTypeIntent: Codable, Sendable {
+  @Guide(description: "Type name like Podcast or Episode") public var typeName: String
+  @Guide(description: "Properties as type declarations like let id: Int or var name: String") public var properties: [String]
+  @Guide(description: "Protocol conformances like Identifiable, Codable, Hashable") public var conformances: [String]
+}
+
+@Generable
+public struct ModelsFileIntent: Codable, Sendable {
+  @Guide(description: "All model types to create in this file") public var models: [ModelTypeIntent]
+}
+
+// MARK: - Service File
+
+@Generable
+public struct ServiceMethodIntent: Codable, Sendable {
+  @Guide(description: "Method signature like func fetchTopPodcasts() async throws -> [Podcast]") public var signature: String
+  @Guide(description: "The URL string this method fetches from, empty if not a network method") public var url: String
+  @Guide(description: "The return type to decode like [Podcast] or User") public var decodedType: String
+}
+
+@Generable
+public struct ServiceIntent: Codable, Sendable {
+  @Guide(description: "Actor name like PodcastService or UserService") public var actorName: String
+  @Guide(description: "Methods this service provides") public var methods: [ServiceMethodIntent]
+}
+
+// MARK: - ViewModel File
+
+@Generable
+public struct ViewModelMethodIntent: Codable, Sendable {
+  @Guide(description: "Method name like loadTopPodcasts or loadEpisodes") public var name: String
+  @Guide(description: "Parameters like podcastID: Int, empty if none") public var parameters: String
+  @Guide(description: "The service method to call like service.fetchTopPodcasts()") public var serviceCall: String
+  @Guide(description: "The state property to assign the result to like podcasts") public var targetProperty: String
+}
+
+@Generable
+public struct ViewModelIntent: Codable, Sendable {
+  @Guide(description: "Class name like PodcastViewModel") public var className: String
+  @Guide(description: "State properties like var podcasts: [Podcast] = []") public var stateProperties: [String]
+  @Guide(description: "Private properties like private let service = PodcastService()") public var privateProperties: [String]
+  @Guide(description: "Async loading methods") public var methods: [ViewModelMethodIntent]
+}
+
 // MARK: - Code Fragment (for targeted retry)
 
 @Generable
@@ -133,6 +180,12 @@ public struct TemplateRenderer: Sendable {
       return "Generate xcconfig build settings as KEY = VALUE pairs."
     } else if name.hasSuffix("app.swift") {
       return "Determine the app name and root view for this SwiftUI app entry point."
+    } else if name.contains("model") && name.hasSuffix(".swift") {
+      return "Extract the model types, their properties (with types), and protocol conformances from the request."
+    } else if name.contains("service") && name.hasSuffix(".swift") {
+      return "Extract the service actor name and its methods with signatures, URLs, and return types."
+    } else if name.contains("viewmodel") && name.hasSuffix(".swift") {
+      return "Extract the ViewModel class name, state properties, private dependencies, and async loading methods."
     }
     return nil
   }
@@ -168,6 +221,15 @@ public struct TemplateRenderer: Sendable {
     } else if name.hasSuffix("app.swift") {
       let intent = try await adapter.generateStructured(prompt: prompt, system: system, as: AppEntryPointIntent.self, options: nil)
       return renderAppEntryPoint(intent)
+    } else if name.contains("model") && name.hasSuffix(".swift") {
+      let intent = try await adapter.generateStructured(prompt: prompt, system: system, as: ModelsFileIntent.self, options: nil)
+      return renderModels(intent)
+    } else if name.contains("service") && name.hasSuffix(".swift") {
+      let intent = try await adapter.generateStructured(prompt: prompt, system: system, as: ServiceIntent.self, options: nil)
+      return renderService(intent)
+    } else if name.contains("viewmodel") && name.hasSuffix(".swift") {
+      let intent = try await adapter.generateStructured(prompt: prompt, system: system, as: ViewModelIntent.self, options: nil)
+      return renderViewModel(intent)
     }
     return nil
   }
@@ -349,6 +411,81 @@ public struct TemplateRenderer: Sendable {
           Line("WindowGroup {")
           Line("    \(intent.rootView)()")
           Line("}")
+        }
+      }
+    }.render()
+  }
+
+  // MARK: - Models File
+
+  public func renderModels(_ intent: ModelsFileIntent) -> String {
+    SwiftCode {
+      Import("Foundation")
+      for (_, model) in intent.models.enumerated() {
+        Blank()
+        Struct(model.typeName, conformances: model.conformances) {
+          for prop in model.properties where !prop.isEmpty {
+            Property(prop.hasPrefix("let ") || prop.hasPrefix("var ") ? prop : "let \(prop)")
+          }
+        }
+      }
+    }.render()
+  }
+
+  // MARK: - Service File
+
+  public func renderService(_ intent: ServiceIntent) -> String {
+    SwiftCode {
+      Import("Foundation")
+      Blank()
+      Actor(intent.actorName) {
+        for (i, method) in intent.methods.enumerated() {
+          if i > 0 { Blank() }
+          let sig = method.signature.hasPrefix("func ") ? method.signature : "func \(method.signature)"
+          Function(sig) {
+            if !method.url.isEmpty {
+              Line("let url = URL(string: \"\(method.url)\")!")
+              Line("let (data, _) = try await URLSession.shared.data(from: url)")
+              if !method.decodedType.isEmpty {
+                Line("return try JSONDecoder().decode(\(method.decodedType).self, from: data)")
+              }
+            } else {
+              Comment("TODO: implement")
+            }
+          }
+        }
+      }
+    }.render()
+  }
+
+  // MARK: - ViewModel File
+
+  public func renderViewModel(_ intent: ViewModelIntent) -> String {
+    SwiftCode {
+      Import("Foundation")
+      Import("Observation")
+      Blank()
+      Class(intent.className, attributes: ["@Observable"]) {
+        for prop in intent.stateProperties where !prop.isEmpty {
+          Property(prop.hasPrefix("var ") ? prop : "var \(prop)")
+        }
+        if !intent.stateProperties.isEmpty { Blank() }
+        for prop in intent.privateProperties where !prop.isEmpty {
+          Property(prop)
+        }
+        if !intent.privateProperties.isEmpty { Blank() }
+        for (i, method) in intent.methods.enumerated() {
+          if i > 0 { Blank() }
+          let params = method.parameters.isEmpty ? "" : "\(method.parameters)"
+          Function("func \(method.name)(\(params)) async") {
+            Line("isLoading = true")
+            Line("do {")
+            Line("    \(method.targetProperty) = try await \(method.serviceCall)")
+            Line("} catch {")
+            Line("    print(\"\\(error)\")")
+            Line("}")
+            Line("isLoading = false")
+          }
         }
       }
     }.render()

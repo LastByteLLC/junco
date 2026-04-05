@@ -315,7 +315,6 @@ public actor Orchestrator {
 
     // Execute with progress callbacks, error recovery, and loop detection
     var lastActions: [(tool: String, target: String)] = []
-    var filesWereModified = false
     let totalSteps = cappedSteps.count
 
     for (index, step) in cappedSteps.enumerated() {
@@ -1462,9 +1461,11 @@ public actor Orchestrator {
         do {
           var system = Prompts.createSystem(domain: domain)
           if target.hasSuffix(".swift") {
+            let fileRole = MicroSkill.inferFileRole(target)
             if let hint = skillLoader.skillHints(
               domain: memory.intent?.domain ?? "swift",
-              taskType: memory.intent?.taskType ?? "add", budget: 100) {
+              taskType: memory.intent?.taskType ?? "add",
+              fileRole: fileRole, budget: 200) {
               system += " " + hint
             }
           }
@@ -1679,10 +1680,11 @@ public actor Orchestrator {
 
       var createSystem = "Output only the file content. No markdown fences, no explanation."
       if createTargetLower.hasSuffix(".swift") {
+        let fileRole = MicroSkill.inferFileRole(step.target)
         let skillHint = skillLoader.skillHints(
           domain: memory.intent?.domain ?? "swift",
           taskType: memory.intent?.taskType ?? "add",
-          budget: 100
+          fileRole: fileRole, budget: 200
         )
         if let hint = skillHint { createSystem += " " + hint }
       }
@@ -1711,7 +1713,7 @@ public actor Orchestrator {
       // Priority-weighted prompt: file content is most critical, then request, then hints
       let reflectionHint = reflectionStore.formatForPrompt(query: memory.query) ?? ""
       let skillHint = step.target.hasSuffix(".swift")
-        ? (skillLoader.skillHints(domain: memory.intent?.domain ?? "swift", taskType: memory.intent?.taskType ?? "fix", budget: 100) ?? "")
+        ? (skillLoader.skillHints(domain: memory.intent?.domain ?? "swift", taskType: memory.intent?.taskType ?? "fix", fileRole: MicroSkill.inferFileRole(step.target), budget: 200) ?? "")
         : ""
       let editBudget = await adapter.contextSize - TokenBudget.estimate(editSystem) - 150 - 400
       let editPrompt = base + "\nRequest: " + TokenBudget.truncate(memory.query, toTokens: 100) + "\n\n"
