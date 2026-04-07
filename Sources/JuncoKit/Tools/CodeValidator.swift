@@ -35,7 +35,7 @@ public struct ValidatorRegistry: Sendable {
     ValidatorRegistry(validators: [
       SwiftValidator(),
       JSONValidator(),
-      ShellScriptValidator(),
+      ShellScriptValidator()
     ])
   }
 

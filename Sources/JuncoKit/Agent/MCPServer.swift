@@ -57,11 +57,11 @@ public actor MCPServer {
         MCPTool(name: "junco/search", description: "Search project code", inputSchema: [:]),
         MCPTool(name: "junco/analyze", description: "Analyze code with on-device LLM", inputSchema: [:]),
         MCPTool(name: "junco/suggest", description: "Get edit suggestions", inputSchema: [:]),
-        MCPTool(name: "junco/reflect", description: "Retrieve past reflections", inputSchema: [:]),
+        MCPTool(name: "junco/reflect", description: "Retrieve past reflections", inputSchema: [:])
       ],
       resources: [
         MCPResource(uri: "junco://index", name: "Project Index"),
-        MCPResource(uri: "junco://domain", name: "Domain Config"),
+        MCPResource(uri: "junco://domain", name: "Domain Config")
       ]
     )
 

@@ -75,7 +75,7 @@ public struct OllamaDetector: Sendable {
       "llama3",
       "llama",
       "mistral",
-      "gemma",
+      "gemma"
     ]
 
     for prefix in preferences {

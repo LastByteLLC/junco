@@ -516,7 +516,7 @@ struct BudgetOptimizationTests {
         TypeSummary(name: "Podcast", file: "m.swift", kind: "struct",
                     properties: ["name", "artist"], methods: [], conformances: ["Codable"]),
         TypeSummary(name: "Episode", file: "m.swift", kind: "struct",
-                    properties: ["title", "date"], methods: [], conformances: ["Codable"]),
+                    properties: ["title", "date"], methods: [], conformances: ["Codable"])
       ],
       views: [TypeSummary(name: "ListView", file: "v.swift", kind: "struct")],
       services: [TypeSummary(name: "PodcastService", file: "s.swift", kind: "actor", methods: ["search"])],

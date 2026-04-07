@@ -61,7 +61,7 @@ struct EvalHarness {
       qualityCriteria: [
         "Should mention Package.swift",
         "Should list target names (junco, JuncoKit, JuncoEval)",
-        "Should reference specific lines or the targets array",
+        "Should reference specific lines or the targets array"
       ]
     ),
     EvalCase(
@@ -73,7 +73,7 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should find Sources/junco/Junco.swift",
-        "Should mention @main or the Junco struct",
+        "Should mention @main or the Junco struct"
       ]
     ),
     EvalCase(
@@ -85,7 +85,7 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should find GenerableTypes.swift",
-        "Should list cases: build, answer",
+        "Should list cases: build, answer"
       ]
     ),
     EvalCase(
@@ -98,7 +98,7 @@ struct EvalHarness {
       qualityCriteria: [
         "Should mention swift test",
         "Should reference Tests/JuncoTests/",
-        "Should mention Swift Testing framework or @Test",
+        "Should mention Swift Testing framework or @Test"
       ]
     ),
     EvalCase(
@@ -111,7 +111,7 @@ struct EvalHarness {
       qualityCriteria: [
         "Should produce a multi-phase plan",
         "Should identify files to modify (Junco.swift, CommandHistory.swift)",
-        "Should describe what the command does",
+        "Should describe what the command does"
       ]
     ),
     EvalCase(
@@ -124,7 +124,7 @@ struct EvalHarness {
       qualityCriteria: [
         "Should identify large sections that can be extracted",
         "Should suggest new files or types",
-        "Should mention risks of the refactor",
+        "Should mention risks of the refactor"
       ]
     ),
     EvalCase(
@@ -137,7 +137,7 @@ struct EvalHarness {
       qualityCriteria: [
         "Should describe classify → strategy → plan → execute → reflect",
         "Should mention modes (build, search, plan, research)",
-        "Should reference the Orchestrator",
+        "Should reference the Orchestrator"
       ]
     ),
     EvalCase(
@@ -149,7 +149,7 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should give a concrete number",
-        "Should mention Sources/ directory",
+        "Should mention Sources/ directory"
       ]
     ),
 
@@ -164,7 +164,7 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should find Sources/JuncoKit/Agent/Orchestrator.swift",
-        "Should show the actor declaration",
+        "Should show the actor declaration"
       ]
     ),
     EvalCase(
@@ -176,7 +176,7 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should find Sources/JuncoKit/Models/TokenBudget.swift",
-        "Should show the enum declaration",
+        "Should show the enum declaration"
       ]
     ),
     EvalCase(
@@ -187,7 +187,7 @@ struct EvalHarness {
       destructive: false,
       setup: nil,
       qualityCriteria: [
-        "Should find Sources/JuncoKit/Tools/SafeShell.swift",
+        "Should find Sources/JuncoKit/Tools/SafeShell.swift"
       ]
     ),
 
@@ -202,7 +202,7 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should find Sources/junco/Junco.swift",
-        "Should mention @main or the Junco struct",
+        "Should mention @main or the Junco struct"
       ]
     ),
     EvalCase(
@@ -214,7 +214,7 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should mention swift-argument-parser",
-        "Should reference Package.swift",
+        "Should reference Package.swift"
       ]
     ),
 
@@ -229,7 +229,7 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should be classified as search, not build",
-        "Should find BuildRunner.swift",
+        "Should find BuildRunner.swift"
       ]
     ),
     EvalCase(
@@ -241,7 +241,7 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should be classified as search, not build",
-        "Should find validateAndFix or validation retry logic",
+        "Should find validateAndFix or validation retry logic"
       ]
     ),
 
@@ -256,7 +256,7 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should give a concrete number",
-        "Should mention @Test or Tests/ directory",
+        "Should mention @Test or Tests/ directory"
       ]
     ),
 
@@ -271,7 +271,7 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should find ProgressiveCompressor.swift",
-        "Should show func compress(code: String, target: Int)",
+        "Should show func compress(code: String, target: Int)"
       ]
     ),
 
@@ -287,7 +287,7 @@ struct EvalHarness {
       qualityCriteria: [
         "Should find AFMAdapter.swift",
         "Should find TokenBudget.swift",
-        "Should find GenerableTypes.swift",
+        "Should find GenerableTypes.swift"
       ]
     ),
 
@@ -302,7 +302,7 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should mention Sources/JuncoKit/Agent, Models, LLM, Tools, RAG, TUI",
-        "Should mention Tests/JuncoTests",
+        "Should mention Tests/JuncoTests"
       ]
     ),
 
@@ -317,7 +317,7 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should find FileCompleter",
-        "Should find CommandCompleter",
+        "Should find CommandCompleter"
       ]
     ),
 
@@ -332,7 +332,7 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should find Config.swift",
-        "Should show bashTimeout = 30",
+        "Should show bashTimeout = 30"
       ]
     ),
 
@@ -348,7 +348,7 @@ struct EvalHarness {
       qualityCriteria: [
         "Should find PipelineError enum",
         "Should find LLMError enum",
-        "Should list cases like contextOverflow, deserializationFailed",
+        "Should list cases like contextOverflow, deserializationFailed"
       ]
     ),
 
@@ -363,7 +363,7 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should list multiple @Suite names",
-        "Should mention TokenBudget, LineEditor, ProgressiveCompressor etc.",
+        "Should mention TokenBudget, LineEditor, ProgressiveCompressor etc."
       ]
     ),
 
@@ -379,7 +379,7 @@ struct EvalHarness {
       qualityCriteria: [
         "Should describe the actor-based animation loop",
         "Should mention phrase rotation and mode icons",
-        "Should reference ThinkingPhrases",
+        "Should reference ThinkingPhrases"
       ]
     ),
 
@@ -396,7 +396,7 @@ struct EvalHarness {
         "Should reference AgentMode enum in GenerableTypes.swift",
         "Should mention Orchestrator.swift for mode dispatch",
         "Should suggest adding a case to AgentMode",
-        "Should mention Spinner or ActionLog for real-time display",
+        "Should mention Spinner or ActionLog for real-time display"
       ]
     ),
 
@@ -411,7 +411,7 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should give concrete numbers",
-        "Should distinguish structs from enums",
+        "Should distinguish structs from enums"
       ]
     ),
 
@@ -426,7 +426,7 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should mention PipelineCallbacks or the onProgress callback",
-        "Should reference Junco.swift where they're wired together",
+        "Should reference Junco.swift where they're wired together"
       ]
     ),
 
@@ -441,7 +441,7 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should find FileIndexer.swift (nested enum inside IndexEntry)",
-        "Should list cases: function, type, property, import, file",
+        "Should list cases: function, type, property, import, file"
       ]
     ),
     EvalCase(
@@ -453,7 +453,7 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should find extensions with Codable in the symbol name",
-        "Should reference GenerableTypes.swift or other files with Codable extensions",
+        "Should reference GenerableTypes.swift or other files with Codable extensions"
       ]
     ),
     EvalCase(
@@ -465,7 +465,7 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should find Orchestrator.swift",
-        "Should show init parameters (adapter, workingDirectory)",
+        "Should show init parameters (adapter, workingDirectory)"
       ]
     ),
     EvalCase(
@@ -477,7 +477,7 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should find GenerableTypes.swift",
-        "Should list cases like contextOverflow, deserializationFailed, toolFailed",
+        "Should list cases like contextOverflow, deserializationFailed, toolFailed"
       ]
     ),
     EvalCase(
@@ -489,7 +489,7 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should find any typealias declarations extracted by tree-sitter",
-        "Should give concrete names and locations",
+        "Should give concrete names and locations"
       ]
     ),
 
@@ -505,7 +505,7 @@ struct EvalHarness {
       qualityCriteria: [
         "Should find multiple files that reference Config",
         "Should include Orchestrator.swift or FileIndexer.swift",
-        "Reference graph boost should surface related files",
+        "Reference graph boost should surface related files"
       ]
     ),
     EvalCase(
@@ -517,7 +517,7 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should find SafeShell.swift definition",
-        "Should find files that use SafeShell (Orchestrator, BuildRunner, etc.)",
+        "Should find files that use SafeShell (Orchestrator, BuildRunner, etc.)"
       ]
     ),
     EvalCase(
@@ -529,7 +529,7 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should find SymbolIndex.swift, ContextPacker.swift, or Orchestrator.swift",
-        "Should show how IndexEntry is consumed, not just defined",
+        "Should show how IndexEntry is consumed, not just defined"
       ]
     ),
     EvalCase(
@@ -542,7 +542,7 @@ struct EvalHarness {
       qualityCriteria: [
         "Should find Orchestrator.swift",
         "Should find ReferenceGraph.swift",
-        "Should distinguish definition from usage",
+        "Should distinguish definition from usage"
       ]
     ),
 
@@ -557,7 +557,7 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should find Orchestrator.swift as primary consumer",
-        "Should find EvalHarness.swift or Junco.swift where it's instantiated",
+        "Should find EvalHarness.swift or Junco.swift where it's instantiated"
       ]
     ),
     EvalCase(
@@ -570,7 +570,7 @@ struct EvalHarness {
       qualityCriteria: [
         "Should find PipelineCallbacks.swift (definition)",
         "Should find Junco.swift or EvalHarness.swift (creation)",
-        "Should find Orchestrator.swift (consumption via run())",
+        "Should find Orchestrator.swift (consumption via run())"
       ]
     ),
     EvalCase(
@@ -583,7 +583,7 @@ struct EvalHarness {
       qualityCriteria: [
         "Should find TreeSitterExtractor.swift",
         "Should find FileIndexer.swift where tree-sitter is called",
-        "Should mention the fallback to regex extraction",
+        "Should mention the fallback to regex extraction"
       ]
     ),
     EvalCase(
@@ -596,7 +596,7 @@ struct EvalHarness {
       qualityCriteria: [
         "Should find ReferenceGraph.swift",
         "Should mention SymbolIndex and TreeSitterExtractor as inputs",
-        "Should describe the build() method",
+        "Should describe the build() method"
       ]
     ),
 
@@ -611,7 +611,7 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should find Config.swift",
-        "Should show the property declaration with its value",
+        "Should show the property declaration with its value"
       ]
     ),
     EvalCase(
@@ -623,9 +623,9 @@ struct EvalHarness {
       setup: nil,
       qualityCriteria: [
         "Should find ReferenceGraph.swift",
-        "Should show static let empty = ReferenceGraph(...)",
+        "Should show static let empty = ReferenceGraph(...)"
       ]
-    ),
+    )
   ]
 
   static let destructiveCases: [EvalCase] = [
@@ -639,7 +639,7 @@ struct EvalHarness {
       qualityCriteria: [
         "Should create Sources/Hello.swift",
         "Should contain valid Swift with print(\"Hello\")",
-        "File should be syntactically valid",
+        "File should be syntactically valid"
       ]
     ),
     EvalCase(
@@ -652,7 +652,7 @@ struct EvalHarness {
       qualityCriteria: [
         "Should add a ## Contributing section",
         "Should preserve existing README content",
-        "New section should have useful content",
+        "New section should have useful content"
       ]
     ),
     EvalCase(
@@ -664,9 +664,9 @@ struct EvalHarness {
       setup: "sed -i '' 's/terminal/termnial/g' Sources/JuncoKit/TUI/Terminal.swift",
       qualityCriteria: [
         "Should find and fix 'termnial' → 'terminal'",
-        "Should not make other changes",
+        "Should not make other changes"
       ]
-    ),
+    )
   ]
 
   // MARK: - Run
@@ -681,7 +681,7 @@ struct EvalHarness {
     let adapterPaths = [
       URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".junco/models/junco_coding_v4.fmadapter"),
       URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".junco/models/junco_coding.fmadapter"),
-      URL(fileURLWithPath: "Training/lora/export/junco_coding.fmadapter"),
+      URL(fileURLWithPath: "Training/lora/export/junco_coding.fmadapter")
     ]
     for path in adapterPaths {
       if FileManager.default.fileExists(atPath: path.appendingPathComponent("adapter_weights.bin").path) {

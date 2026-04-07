@@ -145,7 +145,7 @@ struct SearchScoringTests {
     IndexEntry(filePath: "Tests/AuthTests.swift", symbolName: "AuthTests", kind: .type,
                lineNumber: 8, snippet: "struct AuthTests {"),
     IndexEntry(filePath: "Sources/App.swift", symbolName: "App.swift", kind: .file,
-               lineNumber: 1, snippet: "// App.swift — main application"),
+               lineNumber: 1, snippet: "// App.swift — main application")
   ]
 
   let index = SymbolIndex(entries: entries)

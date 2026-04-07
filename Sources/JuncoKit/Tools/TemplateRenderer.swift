@@ -176,7 +176,7 @@ extension ModelFlatIntent {
   static let kvFields: [(key: String, hint: String)] = [
     ("typeName", "struct name"), ("property1", "first property like let title: String"),
     ("property2", "second property"), ("property3", "third property or blank"),
-    ("property4", "fourth property or blank"), ("conformances", "like Codable, Identifiable"),
+    ("property4", "fourth property or blank"), ("conformances", "like Codable, Identifiable")
   ]
   init(fromKV d: [String: String]) {
     self.init(typeName: d["typeName"] ?? "Item", property1: d["property1"] ?? "",
@@ -190,7 +190,7 @@ extension ServiceFlatIntent {
     ("actorName", "service actor name"), ("methodName", "method name like fetchItems"),
     ("methodParams", "parameters like query: String"), ("returnType", "like [Item] or Item"),
     ("baseURL", "API base URL"), ("queryParamNames", "param names comma-separated"),
-    ("fixedParams", "fixed values like type=json, or blank"),
+    ("fixedParams", "fixed values like type=json, or blank")
   ]
   init(fromKV d: [String: String]) {
     self.init(actorName: d["actorName"] ?? "DataService", methodName: d["methodName"] ?? "fetch",
@@ -206,7 +206,7 @@ extension ViewModelFlatIntent {
     ("property2", "second state property or blank"), ("property3", "third property or blank"),
     ("serviceName", "service type name"), ("methodName", "async method name"),
     ("serviceCall", "service method call like fetchItems(query: searchText)"),
-    ("targetProperty", "property to assign result to"),
+    ("targetProperty", "property to assign result to")
   ]
   init(fromKV d: [String: String]) {
     self.init(className: d["className"] ?? "ViewModel", property1: d["property1"] ?? "",
@@ -219,7 +219,7 @@ extension ViewModelFlatIntent {
 extension ViewModelReducedIntent {
   static let kvFields: [(key: String, hint: String)] = [
     ("className", "ViewModel class name"), ("property1", "main collection property"),
-    ("property2", "second state property or blank"), ("methodName", "async method name"),
+    ("property2", "second state property or blank"), ("methodName", "async method name")
   ]
   init(fromKV d: [String: String]) {
     self.init(className: d["className"] ?? "ViewModel", property1: d["property1"] ?? "",
@@ -233,7 +233,7 @@ extension ListViewFlatIntent {
     ("listProperty", "list data property"), ("itemType", "item type name"),
     ("titleProperty", "primary text property like title"), ("subtitleProperty", "secondary text or blank"),
     ("searchProperty", "search property or blank"), ("loadMethod", "async load method"),
-    ("navigationTitle", "navigation bar title"),
+    ("navigationTitle", "navigation bar title")
   ]
   init(fromKV d: [String: String]) {
     self.init(viewName: d["viewName"] ?? "ListView", viewModelType: d["viewModelType"] ?? "",
@@ -247,7 +247,7 @@ extension ListViewFlatIntent {
 extension ListViewReducedIntent {
   static let kvFields: [(key: String, hint: String)] = [
     ("viewName", "view struct name"), ("navigationTitle", "navigation bar title"),
-    ("itemType", "item type name"),
+    ("itemType", "item type name")
   ]
   init(fromKV d: [String: String]) {
     self.init(viewName: d["viewName"] ?? "ListView", navigationTitle: d["navigationTitle"] ?? "",
@@ -257,7 +257,7 @@ extension ListViewReducedIntent {
 
 extension AppEntryPointIntent {
   static let kvFields: [(key: String, hint: String)] = [
-    ("appName", "App struct name"), ("rootView", "root view type"),
+    ("appName", "App struct name"), ("rootView", "root view type")
   ]
   init(fromKV d: [String: String]) {
     self.init(appName: d["appName"] ?? "MyApp", rootView: d["rootView"] ?? "ContentView",
@@ -622,7 +622,7 @@ public struct TemplateRenderer: Sendable {
       "CFBundleIdentifier": intent.bundleIdentifier,
       "CFBundleVersion": "1",
       "CFBundleShortVersionString": "1.0",
-      "CFBundlePackageType": "APPL",
+      "CFBundlePackageType": "APPL"
     ]
     if !intent.cameraUsage.isEmpty {
       dict["NSCameraUsageDescription"] = intent.cameraUsage
@@ -649,7 +649,7 @@ public struct TemplateRenderer: Sendable {
 
   public func renderPrivacyManifest(_ intent: PrivacyManifestIntent) -> String {
     var dict: [String: Any] = [
-      "NSPrivacyTracking": intent.tracking,
+      "NSPrivacyTracking": intent.tracking
     ]
 
     if !intent.accessedAPITypes.isEmpty {
@@ -658,7 +658,7 @@ public struct TemplateRenderer: Sendable {
         let reason = i < intent.accessedAPIReasons.count ? intent.accessedAPIReasons[i] : "C617.1"
         apiEntries.append([
           "NSPrivacyAccessedAPIType": apiType,
-          "NSPrivacyAccessedAPITypeReasons": [reason],
+          "NSPrivacyAccessedAPITypeReasons": [reason]
         ])
       }
       dict["NSPrivacyAccessedAPITypes"] = apiEntries
@@ -745,11 +745,7 @@ public struct TemplateRenderer: Sendable {
         if !nameAndType.contains(":") {
           let defaultVal = parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespaces) : ""
           let inferredType: String
-          if defaultVal.hasPrefix("\"") { inferredType = "String" }
-          else if defaultVal == "0" || defaultVal == "0.0" { inferredType = "Int" }
-          else if defaultVal == "true" || defaultVal == "false" { inferredType = "Bool" }
-          else if defaultVal == "[]" { inferredType = "[String]" }
-          else { inferredType = "String" }
+          if defaultVal.hasPrefix("\"") { inferredType = "String" } else if defaultVal == "0" || defaultVal == "0.0" { inferredType = "Int" } else if defaultVal == "true" || defaultVal == "false" { inferredType = "Bool" } else if defaultVal == "[]" { inferredType = "[String]" } else { inferredType = "String" }
           return "\(nameAndType): \(inferredType)"
         } else {
           return String(nameAndType)
@@ -806,7 +802,7 @@ public struct TemplateRenderer: Sendable {
         Function(sig) {
           Line("var components = URLComponents(string: \"\(intent.baseURL)\")!")
           Line("components.queryItems = [")
-          for (_, name) in paramNames.enumerated() {
+          for name in paramNames {
             if let fixed = fixedPairs.first(where: { $0.hasPrefix(name + "=") }) {
               let value = String(fixed.split(separator: "=", maxSplits: 1).last ?? "")
               Line("    URLQueryItem(name: \"\(name)\", value: \"\(value)\"),")
@@ -930,7 +926,7 @@ public struct TemplateRenderer: Sendable {
   // MARK: - Swift Test File
 
   public func renderSwiftTest(_ intent: SwiftTestIntent) -> String {
-    return SwiftCode {
+    SwiftCode {
       Import("Testing")
       Line("@testable import \(intent.moduleName)")
       Blank()

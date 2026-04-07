@@ -187,7 +187,7 @@ struct ViewModelFlatRenderTests {
       ("RecipeViewModel", "RecipeService", "recipes: [Recipe]", "searchRecipes(query: query)"),
       ("BookViewModel", "BookService", "books: [Book]", "searchBooks(query: searchText)"),
       ("NewsViewModel", "NewsService", "articles: [Article]", "fetchHeadlines(country: country)"),
-      ("FitnessViewModel", "FitnessTracker", "workouts: [Workout]", "fetchWorkouts()"),
+      ("FitnessViewModel", "FitnessTracker", "workouts: [Workout]", "fetchWorkouts()")
     ]
     let renderer = TemplateRenderer()
     for (className, service, prop, call) in domains {
@@ -308,13 +308,13 @@ struct PersonalizedExemplarTests {
       models: [
         TypeSummary(name: "Podcast", file: "m.swift", kind: "struct",
                     properties: ["trackName", "artistName", "feedUrl"],
-                    conformances: ["Codable"]),
+                    conformances: ["Codable"])
       ],
       views: [],
       services: [
         TypeSummary(name: "PodcastViewModel", file: "vm.swift", kind: "class",
                     properties: ["podcasts", "searchText"],
-                    methods: ["search"]),
+                    methods: ["search"])
       ],
       navigationPattern: nil, testPattern: nil, keyFiles: [:]
     )
@@ -356,13 +356,13 @@ struct PersonalizedExemplarTests {
       models: [
         TypeSummary(name: "Forecast", file: "m.swift", kind: "struct",
                     properties: ["day", "tempHigh", "tempLow"],
-                    conformances: ["Codable"]),
+                    conformances: ["Codable"])
       ],
       views: [],
       services: [
         TypeSummary(name: "WeatherViewModel", file: "vm.swift", kind: "class",
                     properties: ["forecasts"],
-                    methods: ["loadForecast"]),
+                    methods: ["loadForecast"])
       ],
       navigationPattern: nil, testPattern: nil, keyFiles: [:]
     )

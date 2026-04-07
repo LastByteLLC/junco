@@ -90,7 +90,7 @@ public struct SignatureIndex: Sendable {
 
     // Pattern 3: "incorrect argument label" with type context
     if let match = compilerError.firstMatch(of: /incorrect argument label.*have '(\w+):'.*expected '(\w+):'/) {
-      let _ = String(match.1) // wrong label (unused, kept for future diagnostics)
+      _ = String(match.1) // wrong label (unused, kept for future diagnostics)
       let correct = String(match.2).lowercased()
       // Find a signature that mentions the correct label
       for sig in signatures where sig.signature.lowercased().contains("\(correct):") {
@@ -172,6 +172,6 @@ extension SignatureIndex {
       member: "@Observable",
       signature: "@Observable class MyModel { var property: Type }  // NO @Published with @Observable",
       commonMistakes: ["@Published", "ObservableObject", "StateObject"]
-    ),
+    )
   ]
 }

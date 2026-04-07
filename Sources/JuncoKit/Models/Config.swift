@@ -107,13 +107,13 @@ public enum Config {
     "sudo ", "shutdown", "reboot", "halt",
     "> /dev/sd", "> /dev/disk", "mkfs",
     "dd if=", ":(){", "fork bomb",
-    "passwd", "visudo", "crontab -e",
+    "passwd", "visudo", "crontab -e"
   ]
 
   // MARK: - File Extensions by Domain
 
   public static let swiftExtensions = ["swift"]
   public static let generalExtensions = [
-    "swift", "c", "cpp", "h", "json", "yaml", "md", "plist",
+    "swift", "c", "cpp", "h", "json", "yaml", "md", "plist"
   ]
 }

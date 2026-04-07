@@ -85,7 +85,7 @@ struct CandidateGeneratorTests {
       """,
       """
       {"filePath":"test.swift","content":"import Foundation\\nlet x = 42"}
-      """,
+      """
     ]
     let mock = MockAdapter(responses: responses)
     let shell = SafeShell(workingDirectory: NSTemporaryDirectory())

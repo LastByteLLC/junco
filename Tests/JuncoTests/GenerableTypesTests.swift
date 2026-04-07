@@ -27,7 +27,7 @@ struct GenerableTypesTests {
   func planCodable() throws {
     let plan = AgentPlan(steps: [
       PlanStep(instruction: "Read file", tool: "read", target: "main.swift"),
-      PlanStep(instruction: "Edit function", tool: "edit", target: "main.swift"),
+      PlanStep(instruction: "Edit function", tool: "edit", target: "main.swift")
     ])
     let data = try JSONEncoder().encode(plan)
     let decoded = try JSONDecoder().decode(AgentPlan.self, from: data)
@@ -87,7 +87,7 @@ struct GenerableTypesTests {
       .create(path: "new.swift", content: "code"),
       .write(path: "file.swift", content: "code"),
       .edit(path: "file.swift", find: "old", replace: "new"),
-      .search(pattern: "TODO"),
+      .search(pattern: "TODO")
     ]
     #expect(actions.count == 6)
   }

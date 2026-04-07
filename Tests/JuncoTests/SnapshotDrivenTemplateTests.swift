@@ -206,12 +206,12 @@ struct SnapshotDeriverTests {
       models: [
         TypeSummary(name: "Podcast", file: "m.swift", kind: "struct",
                     properties: ["trackName", "artistName"],
-                    conformances: ["Codable"]),
+                    conformances: ["Codable"])
       ],
       views: [],
       services: [
         TypeSummary(name: "PodcastService", file: "s.swift", kind: "actor",
-                    methods: ["searchPodcasts(term: String)"]),
+                    methods: ["searchPodcasts(term: String)"])
       ],
       navigationPattern: nil, testPattern: nil, keyFiles: [:]
     )
@@ -252,12 +252,12 @@ struct SnapshotDeriverTests {
                     properties: ["trackName", "artistName"]),
         TypeSummary(name: "PodcastViewModel", file: "vm.swift", kind: "class",
                     properties: ["podcasts", "searchText"],
-                    methods: ["search"]),
+                    methods: ["search"])
       ],
       views: [],
       services: [
         TypeSummary(name: "PodcastService", file: "s.swift", kind: "actor",
-                    methods: ["searchPodcasts"]),
+                    methods: ["searchPodcasts"])
       ],
       navigationPattern: nil, testPattern: nil, keyFiles: [:]
     )
@@ -308,7 +308,7 @@ struct SnapshotDeriverTests {
       models: [], views: [],
       services: [
         TypeSummary(name: "WeatherService", file: "s.swift", kind: "actor",
-                    methods: ["fetchWeather(city: String)"]),
+                    methods: ["fetchWeather(city: String)"])
       ],
       navigationPattern: nil, testPattern: nil, keyFiles: [:]
     )

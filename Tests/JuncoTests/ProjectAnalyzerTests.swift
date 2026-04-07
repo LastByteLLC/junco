@@ -32,17 +32,17 @@ struct ProjectAnalyzerTests {
                     conformances: ["Identifiable", "Codable"]),
         TypeSummary(name: "Episode", file: "Episode.swift", kind: "struct",
                     properties: ["id", "title", "duration", "streamURL"],
-                    conformances: ["Identifiable"]),
+                    conformances: ["Identifiable"])
       ],
       views: [
         TypeSummary(name: "PodcastListView", file: "PodcastListView.swift", kind: "struct",
                     conformances: ["View"]),
         TypeSummary(name: "PodcastDetailView", file: "PodcastDetailView.swift", kind: "struct",
-                    conformances: ["View"]),
+                    conformances: ["View"])
       ],
       services: [
         TypeSummary(name: "PodcastService", file: "PodcastService.swift", kind: "actor",
-                    methods: ["fetchTopPodcasts", "searchPodcasts", "fetchEpisodes"]),
+                    methods: ["fetchTopPodcasts", "searchPodcasts", "fetchEpisodes"])
       ],
       navigationPattern: "NavigationStack in PodcastApp.swift",
       testPattern: "Swift Testing @Test (3 test files)",
@@ -84,7 +84,7 @@ struct ProjectAnalyzerTests {
       IndexEntry(filePath: "DataService.swift", symbolName: "DataService", kind: .type, lineNumber: 1,
                  snippet: "actor DataService {"),
       IndexEntry(filePath: "DataService.swift", symbolName: "fetchAll", kind: .function, lineNumber: 5,
-                 snippet: "func fetchAll() async throws"),
+                 snippet: "func fetchAll() async throws")
     ]
 
     let domain = DomainConfig(kind: .swift, displayName: "Swift", fileExtensions: ["swift"],

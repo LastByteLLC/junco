@@ -13,7 +13,7 @@ import Foundation
 import JuncoKit
 
 @main
-struct JuncoEval {
+enum JuncoEval {
   static func main() async throws {
     let verbose = CommandLine.arguments.contains("--verbose") || CommandLine.arguments.contains("-v")
     let isEval = CommandLine.arguments.contains("--eval")

@@ -143,7 +143,7 @@ struct ProgressiveCompressorTests {
   func sectionPriority() {
     let sections = [
       (content: sampleCode, priority: 90),
-      (content: "Low priority filler text that takes up space", priority: 10),
+      (content: "Low priority filler text that takes up space", priority: 10)
     ]
     let results = compressor.compressSections(sections, totalBudget: 120)
     // High priority section should get lighter compression than low priority
@@ -156,7 +156,7 @@ struct ProgressiveCompressorTests {
     let sections = [
       (content: sampleCode, priority: 90),
       (content: sampleCode, priority: 50),
-      (content: sampleCode, priority: 10),
+      (content: sampleCode, priority: 10)
     ]
     let results = compressor.compressSections(sections, totalBudget: 80)
     let totalTokens = results.reduce(0) { $0 + $1.compressedTokens }

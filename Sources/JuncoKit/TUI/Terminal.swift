@@ -77,7 +77,7 @@ public enum Terminal {
       print(Style.dim(message), terminator: "")
       fflush(stdout)
     } else {
-      FileHandle.standardError.write("[status] \(message)\n".data(using: .utf8) ?? Data())
+      FileHandle.standardError.write(Data("[status] \(message)\n".utf8))
     }
   }
 

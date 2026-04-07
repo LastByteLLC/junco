@@ -28,7 +28,7 @@ public enum StopWords {
     "these", "they", "this", "those", "through", "to", "too", "under",
     "until", "up", "very", "was", "we", "were", "what", "when", "where",
     "which", "while", "who", "whom", "why", "will", "with", "you", "your",
-    "yours", "yourself", "yourselves",
+    "yours", "yourself", "yourselves"
   ]
 
   /// Check if a word is a stop word.

@@ -17,7 +17,7 @@ public struct IgnoreFilter: Sendable {
     "DerivedData", ".swiftpm",
     "Pods", "build",
     "Samples", "fixtures", "Training",
-    "node_modules", "vendor",
+    "node_modules", "vendor"
   ]
 
   public init(workingDirectory: String) {

@@ -33,12 +33,12 @@ public struct SyntaxHighlighter: Sendable {
       "await", "public", "private", "internal", "open", "static", "override",
       "init", "deinit", "self", "Self", "nil", "true", "false", "in", "where",
       "typealias", "associatedtype", "some", "any", "weak", "unowned", "lazy",
-      "mutating", "nonisolated", "Sendable", "MainActor",
+      "mutating", "nonisolated", "Sendable", "MainActor"
     ])
     result = colorizeTypes(result, types: [
       "String", "Int", "Bool", "Double", "Float", "Array", "Dictionary",
       "Optional", "Result", "Error", "URL", "Data", "Date", "UUID", "Set",
-      "Task", "AsyncStream", "Void",
+      "Task", "AsyncStream", "Void"
     ])
     result = colorizeNumbers(result)
     return result
@@ -107,7 +107,7 @@ public struct SyntaxHighlighter: Sendable {
     result = colorizeKeywords(result, keywords: [
       "if", "then", "else", "elif", "fi", "for", "while", "do", "done",
       "case", "esac", "function", "return", "exit", "echo", "export",
-      "source", "local", "readonly", "set", "unset",
+      "source", "local", "readonly", "set", "unset"
     ])
     // Variables: $VAR ${VAR}
     result = result.replacingOccurrences(

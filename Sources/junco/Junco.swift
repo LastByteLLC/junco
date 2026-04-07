@@ -1001,7 +1001,7 @@ struct Junco: AsyncParsableCommand {
       ("/pastes", "Clipboard paste list"),
       ("/model [backend]", "Show/switch model (afm, ollama)"),
       ("/usage", "Token usage & limits"),
-      ("/help", "This help"),
+      ("/help", "This help")
     ]
     for (cmd, desc) in commands {
       Terminal.line("  \(Style.cyan(cmd.padding(toLength: 22, withPad: " ", startingAt: 0)))\(desc)")

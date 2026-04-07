@@ -64,7 +64,7 @@ public actor SwiftInterfaceIndex {
   private static func discoverSDKPathWithoutProcess() -> String? {
     let knownPaths = [
       "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk",
-      "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+      "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk"
     ]
     return knownPaths.first(where: { FileManager.default.fileExists(atPath: $0) })
   }
@@ -128,7 +128,7 @@ public actor SwiftInterfaceIndex {
     // Use known paths to avoid spawning Process (which triggers assertions in test environments)
     let knownPaths = [
       "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk",
-      "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+      "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk"
     ]
     if let found = knownPaths.first(where: { FileManager.default.fileExists(atPath: $0) }) {
       return found
@@ -266,7 +266,7 @@ public actor SwiftInterfaceIndex {
       ("public struct ", false), ("open struct ", false),
       ("public enum ", false),
       ("public protocol ", false),
-      ("public actor ", false),
+      ("public actor ", false)
     ]
 
     for (prefix, isExtension) in patterns {
@@ -307,8 +307,8 @@ public actor SwiftInterfaceIndex {
     }
 
     // Properties: public var currentItem: AVPlayerItem? { get }
-    if (trimmed.hasPrefix("public var ") || trimmed.hasPrefix("open var ") ||
-        trimmed.hasPrefix("public let ") || trimmed.hasPrefix("open let ")) {
+    if trimmed.hasPrefix("public var ") || trimmed.hasPrefix("open var ") ||
+        trimmed.hasPrefix("public let ") || trimmed.hasPrefix("open let ") {
       let declStart = trimmed.range(of: "var ") ?? trimmed.range(of: "let ")
       guard let start = declStart?.upperBound else { return nil }
       let name = String(trimmed[start...]).prefix(while: { $0 != ":" && $0 != " " && $0 != "(" })
@@ -338,11 +338,7 @@ public actor SwiftInterfaceIndex {
       let name = member.memberName.lowercased()
 
       var score = 0
-      if name == query || name == stripped { score = 100 }
-      else if name.contains(stripped) && stripped.count >= 3 { score = 70 }
-      else if stripped.contains(name) && name.count >= 3 { score = 60 }
-      else if query.hasSuffix(name) || name.hasSuffix(stripped) { score = 55 }
-      else {
+      if name == query || name == stripped { score = 100 } else if name.contains(stripped) && stripped.count >= 3 { score = 70 } else if stripped.contains(name) && name.count >= 3 { score = 60 } else if query.hasSuffix(name) || name.hasSuffix(stripped) { score = 55 } else {
         let dist = Self.levenshtein(name, stripped)
         if dist <= 3 { score = 40 - dist * 10 }
       }
@@ -404,6 +400,6 @@ public actor SwiftInterfaceIndex {
   // Note: Foundation.swiftinterface (22K lines) can trigger runtime assertions
   // in some SDK versions. It's loaded on-demand but not in commonFrameworks.
   private static let commonFrameworks = [
-    "Observation", "Combine", "SwiftData",
+    "Observation", "Combine", "SwiftData"
   ]
 }

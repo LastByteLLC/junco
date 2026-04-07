@@ -13,7 +13,7 @@ struct LineEditorTests {
   @Test("typing and submitting returns text")
   func typeAndSubmit() {
     let vt = VirtualTerminalDriver(keys: [
-      .char("h"), .char("i"), .enter,
+      .char("h"), .char("i"), .enter
     ])
     let editor = makeEditor()
     let result = editor.readLine(driver: vt)
@@ -23,7 +23,7 @@ struct LineEditorTests {
   @Test("backspace deletes character")
   func backspace() {
     let vt = VirtualTerminalDriver(keys: [
-      .char("a"), .char("b"), .char("c"), .backspace, .enter,
+      .char("a"), .char("b"), .char("c"), .backspace, .enter
     ])
     let editor = makeEditor()
     let result = editor.readLine(driver: vt)
@@ -35,7 +35,7 @@ struct LineEditorTests {
     let vt = VirtualTerminalDriver(keys: [
       .char("h"), .char("e"), .char("l"), .char("l"), .char("o"),
       .ctrlU,
-      .char("b"), .char("y"), .char("e"), .enter,
+      .char("b"), .char("y"), .char("e"), .enter
     ])
     let editor = makeEditor()
     let result = editor.readLine(driver: vt)
@@ -45,7 +45,7 @@ struct LineEditorTests {
   @Test("ctrl-C returns nil")
   func ctrlC() {
     let vt = VirtualTerminalDriver(keys: [
-      .char("x"), .ctrlC,
+      .char("x"), .ctrlC
     ])
     let editor = makeEditor()
     let result = editor.readLine(driver: vt)
@@ -77,7 +77,7 @@ struct LineEditorTests {
     let vt = VirtualTerminalDriver(keys: [
       .up,     // → "second command"
       .up,     // → "first command"
-      .enter,
+      .enter
     ])
     let editor = makeEditor()
     let result = editor.readLine(driver: vt, history: history)
@@ -96,7 +96,7 @@ struct LineEditorTests {
       .up,     // → "new"
       .up,     // → "old"
       .down,   // → "new"
-      .enter,
+      .enter
     ])
     let editor = makeEditor()
     let result = editor.readLine(driver: vt, history: history)
@@ -106,7 +106,7 @@ struct LineEditorTests {
   @Test("command completion via tab")
   func commandCompletion() {
     let vt = VirtualTerminalDriver(keys: [
-      .char("/"), .char("h"), .char("e"), .tab, .enter,
+      .char("/"), .char("h"), .char("e"), .tab, .enter
     ])
     let editor = LineEditor(prompt: "> ", completers: [CommandCompleter()])
     let result = editor.readLine(driver: vt)
@@ -119,7 +119,7 @@ struct LineEditorTests {
       .char("/"), // triggers completions
       .escape,    // dismiss
       .backspace, // remove /
-      .char("h"), .char("i"), .enter,
+      .char("h"), .char("i"), .enter
     ])
     let editor = LineEditor(prompt: "> ", completers: [CommandCompleter()])
     let result = editor.readLine(driver: vt)
@@ -154,7 +154,7 @@ struct LineEditorTests {
       .char("@"),
       .down, .down, .down,  // navigate completions
       .tab,                 // accept
-      .enter,               // submit
+      .enter               // submit
     ])
     // Place cursor at row 5 (simulating welcome banner above)
     vt.setCursorRow(5)
@@ -175,7 +175,7 @@ struct LineEditorTests {
       .char("@"),
       .down, .down, .up, .up, .down,  // cycle around
       .escape,                         // dismiss completions
-      .enter,                          // submit "@"
+      .enter                          // submit "@"
     ])
     vt.setCursorRow(3)
 
@@ -198,7 +198,7 @@ struct LineEditorTests {
       .escape,     // dismiss completions
       .backspace,  // remove @
       .char("x"),
-      .enter,
+      .enter
     ], screenWidth: 40)
     vt.setCursorRow(2)
 
@@ -217,7 +217,7 @@ struct LineEditorTests {
       .char("f"), .char("i"), .char("x"), .char(" "), .char("@"),
       .down,   // select first
       .tab,    // accept
-      .enter,
+      .enter
     ])
     vt.setCursorRow(4)
 
@@ -237,7 +237,7 @@ struct LineEditorTests {
     // Verify: mode bar doesn't corrupt cursor, result is correct,
     // and no cursor overshoot occurs.
     let vt = VirtualTerminalDriver(keys: [
-      .char("x"), .enter,
+      .char("x"), .enter
     ], screenWidth: 60)
     vt.setCursorRow(3)
     let editor = LineEditor(prompt: "> ", completers: [], showModeBar: true)
@@ -251,7 +251,7 @@ struct LineEditorTests {
   @Test("mode bar hidden when showModeBar is false")
   func modeBarHidden() {
     let vt = VirtualTerminalDriver(keys: [
-      .char("x"), .enter,
+      .char("x"), .enter
     ], screenWidth: 60)
     let editor = LineEditor(prompt: "> ", completers: [], showModeBar: false)
     _ = editor.readLineWithMode(driver: vt)
@@ -264,7 +264,7 @@ struct LineEditorTests {
   @Test("default mode is build")
   func defaultModeBuild() {
     let vt = VirtualTerminalDriver(keys: [
-      .char("x"), .enter,
+      .char("x"), .enter
     ])
     let editor = LineEditor(prompt: "> ", completers: [], showModeBar: true)
     let result = editor.readLineWithMode(driver: vt)
@@ -278,7 +278,7 @@ struct LineEditorTests {
     let vt = VirtualTerminalDriver(keys: [
       .shiftTab,  // build → search
       .char("q"),
-      .enter,
+      .enter
     ])
     let editor = LineEditor(prompt: "> ", completers: [], showModeBar: true)
     let result = editor.readLineWithMode(driver: vt)
@@ -294,7 +294,7 @@ struct LineEditorTests {
       .shiftTab,  // → answer
       .shiftTab,  // → build (wrap)
       .char("x"),
-      .enter,
+      .enter
     ])
     let editor = LineEditor(prompt: "> ", completers: [], showModeBar: true)
     let result = editor.readLineWithMode(driver: vt)
@@ -307,7 +307,7 @@ struct LineEditorTests {
     let vt = VirtualTerminalDriver(keys: [
       .shiftTab,  // → answer
       .char("x"),
-      .enter,
+      .enter
     ])
     let editor = LineEditor(prompt: "> ", completers: [], showModeBar: true)
     let result = editor.readLineWithMode(driver: vt)
@@ -322,7 +322,7 @@ struct LineEditorTests {
       .char("h"), .char("i"),
       .shiftTab,  // cycle mode
       .char("!"),
-      .enter,
+      .enter
     ])
     let editor = LineEditor(prompt: "> ", completers: [], showModeBar: true)
     let result = editor.readLineWithMode(driver: vt)
@@ -337,7 +337,7 @@ struct LineEditorTests {
       .char("h"), .char("i"),
       .escape,    // first esc — sets escPending (hint rendered transiently)
       .char("x"), // cancels esc pending, adds character
-      .enter,
+      .enter
     ])
     let editor = LineEditor(prompt: "> ", completers: [], showModeBar: true)
     let result = editor.readLineWithMode(driver: vt)
@@ -352,7 +352,7 @@ struct LineEditorTests {
       .char("h"), .char("i"),
       .escape,    // first esc — hint
       .escape,    // second esc — clear
-      .enter,     // submit empty → nil
+      .enter     // submit empty → nil
     ])
     let editor = LineEditor(prompt: "> ", completers: [], showModeBar: true)
     let result = editor.readLineWithMode(driver: vt)
@@ -366,7 +366,7 @@ struct LineEditorTests {
       .char("@"),
       .down, .down,
       .tab,
-      .enter,
+      .enter
     ], screenWidth: 60)
     vt.setCursorRow(5)
 
@@ -384,7 +384,7 @@ struct LineEditorTests {
       .char("@"),     // trigger completions
       .shiftTab,      // should cycle mode, not affect completions
       .tab,           // accept first completion
-      .enter,
+      .enter
     ])
 
     let completer = StubFileCompleter(files: ["main.swift"])
@@ -400,7 +400,7 @@ struct LineEditorTests {
     let vt = VirtualTerminalDriver(keys: [
       .shiftTab,  // cycle to search
       .char("x"),
-      .enter,
+      .enter
     ])
     let editor = LineEditor(prompt: "> ", completers: [], showModeBar: true)
     // readLine() returns String?, not LineEditorResult
@@ -412,7 +412,7 @@ struct LineEditorTests {
   func ctrlCPreservesMode() {
     let vt = VirtualTerminalDriver(keys: [
       .shiftTab,  // → answer
-      .ctrlC,
+      .ctrlC
     ])
     let editor = LineEditor(prompt: "> ", completers: [], showModeBar: true)
     let result = editor.readLineWithMode(driver: vt)

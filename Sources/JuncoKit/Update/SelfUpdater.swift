@@ -115,15 +115,26 @@ public struct SelfUpdater: Sendable {
 
     let (bytes, response) = try await URLSession.shared.bytes(for: request)
 
-    guard let httpResponse = response as? HTTPURLResponse,
-          (200...299).contains(httpResponse.statusCode) else {
+    guard
+      let httpResponse = response as? HTTPURLResponse,
+      (200...299).contains(httpResponse.statusCode)
+    else {
       let code = (response as? HTTPURLResponse)?.statusCode ?? 0
       throw UpdateError.downloadFailed("HTTP \(code)")
     }
 
     let expectedLength = httpResponse.expectedContentLength
-    let showProgress = expectedLength > 0
+    try await streamToFile(
+      bytes: bytes, destinationPath: destinationPath,
+      expectedLength: expectedLength
+    )
+  }
 
+  private func streamToFile(
+    bytes: URLSession.AsyncBytes, destinationPath: String,
+    expectedLength: Int64
+  ) async throws {
+    let showProgress = expectedLength > 0
     FileManager.default.createFile(atPath: destinationPath, contents: nil)
     let handle = try FileHandle(forWritingTo: URL(fileURLWithPath: destinationPath))
     defer { try? handle.close() }
@@ -131,43 +142,38 @@ public struct SelfUpdater: Sendable {
     var totalWritten: Int64 = 0
     var lastPercent = -1
     var buffer = Data()
-    let flushThreshold = 64 * 1024
 
     for try await byte in bytes {
       buffer.append(byte)
-
-      if buffer.count >= flushThreshold {
+      if buffer.count >= 64 * 1024 {
         handle.write(buffer)
         totalWritten += Int64(buffer.count)
         buffer.removeAll(keepingCapacity: true)
-
         if showProgress {
-          let percent = Int(Double(totalWritten) / Double(expectedLength) * 100)
-          if percent != lastPercent {
-            lastPercent = percent
-            let mbWritten = Double(totalWritten) / 1_048_576
-            let mbTotal = Double(expectedLength) / 1_048_576
-            let barWidth = 30
-            let filled = Int(Double(barWidth) * Double(percent) / 100)
-            let bar = String(repeating: "█", count: filled) + String(repeating: "░", count: barWidth - filled)
-            print("\rDownloading [\(bar)] \(percent)% (\(String(format: "%.1f", mbWritten))/\(String(format: "%.1f", mbTotal)) MB)", terminator: "")
-            fflush(stdout)
-          }
+          lastPercent = printProgress(
+            totalWritten, of: expectedLength, lastPercent: lastPercent
+          )
         }
       }
     }
 
-    // Flush remaining
-    if !buffer.isEmpty {
-      handle.write(buffer)
-    }
+    if !buffer.isEmpty { handle.write(buffer) }
     try handle.close()
+    if showProgress { print("\r\u{1B}[K", terminator: ""); fflush(stdout) }
+  }
 
-    // Clear progress line
-    if showProgress {
-      print("\r\u{1B}[K", terminator: "")
-      fflush(stdout)
-    }
+  private func printProgress(_ written: Int64, of total: Int64, lastPercent: Int) -> Int {
+    let percent = Int(Double(written) / Double(total) * 100)
+    guard percent != lastPercent else { return lastPercent }
+    let barWidth = 30
+    let filled = Int(Double(barWidth) * Double(percent) / 100)
+    let fill = String(repeating: "█", count: filled)
+    let empty = String(repeating: "░", count: barWidth - filled)
+    let mb = String(format: "%.1f", Double(written) / 1_048_576)
+    let tot = String(format: "%.1f", Double(total) / 1_048_576)
+    print("\rDownloading [\(fill)\(empty)] \(percent)% (\(mb)/\(tot) MB)", terminator: "")
+    fflush(stdout)
+    return percent
   }
 
   // MARK: - SHA-256

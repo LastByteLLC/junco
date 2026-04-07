@@ -467,7 +467,7 @@ public struct TaskResolver: Sendable {
   static func inferAppDomain(_ query: String, projectDirectory: String? = nil) -> String {
     let lower = query.lowercased()
     let patterns = [
-      #"(?:build|create|make)\s+(?:a|an)\s+(\w+)\s+(?:app|application|project)"#,
+      #"(?:build|create|make)\s+(?:a|an)\s+(\w+)\s+(?:app|application|project)"#
     ]
     for pattern in patterns {
       if let regex = try? NSRegularExpression(pattern: pattern),

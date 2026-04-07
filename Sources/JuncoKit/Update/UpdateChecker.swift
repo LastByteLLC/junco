@@ -37,7 +37,9 @@ public actor UpdateChecker {
 
   /// GitHub API endpoint for the latest release.
   private static var releaseURL: URL {
-    URL(string: "https://api.github.com/repos/\(JuncoVersion.repoOwner)/\(JuncoVersion.repoName)/releases/latest")!
+    let owner = JuncoVersion.repoOwner
+    let repo = JuncoVersion.repoName
+    return URL(string: "https://api.github.com/repos/\(owner)/\(repo)/releases/latest")!
   }
 
   public init() {}
@@ -49,9 +51,9 @@ public actor UpdateChecker {
     guard !isPipe else { return }
     Task.detached(priority: .utility) { [self] in
       guard let info = await self.check(current: currentVersion) else { return }
-      FileHandle.standardError.write(Data(
-        "\u{1B}[2m  Update available: junco v\(info.version) (you have v\(currentVersion)). Run `junco update` to upgrade.\u{1B}[0m\n".utf8
-      ))
+      let msg = "  Update available: junco v\(info.version)"
+        + " (you have v\(currentVersion)). Run `junco update` to upgrade."
+      FileHandle.standardError.write(Data("\u{1B}[2m\(msg)\u{1B}[0m\n".utf8))
     }
   }
 
@@ -61,7 +63,7 @@ public actor UpdateChecker {
   public func check(current: String) async -> UpdateInfo? {
     // Read cache — skip network if checked recently
     if let cached = readCache(),
-       cached.checkedAt.timeIntervalSinceNow > -Self.checkInterval {
+      cached.checkedAt.timeIntervalSinceNow > -Self.checkInterval {
       return isNewer(cached.info.version, than: current) ? cached.info : nil
     }
 
@@ -71,10 +73,11 @@ public actor UpdateChecker {
     request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
     request.timeoutInterval = 10
 
-    guard let (data, response) = try? await URLSession.shared.data(for: request),
-          (response as? HTTPURLResponse)?.statusCode == 200,
-          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-          let tagName = json["tag_name"] as? String
+    guard
+      let (data, response) = try? await URLSession.shared.data(for: request),
+      (response as? HTTPURLResponse)?.statusCode == 200,
+      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let tagName = json["tag_name"] as? String
     else { return nil }
 
     let version = tagName.hasPrefix("v") ? String(tagName.dropFirst()) : tagName
@@ -83,10 +86,11 @@ public actor UpdateChecker {
     guard !tagName.contains("-lora") else { return nil }
 
     // Find the arm64 binary asset
-    guard let assets = json["assets"] as? [[String: Any]],
-          let binary = assets.first(where: { ($0["name"] as? String) == "junco-arm64" }),
-          let urlString = binary["browser_download_url"] as? String,
-          let downloadURL = URL(string: urlString)
+    guard
+      let assets = json["assets"] as? [[String: Any]],
+      let binary = assets.first(where: { ($0["name"] as? String) == "junco-arm64" }),
+      let urlString = binary["browser_download_url"] as? String,
+      let downloadURL = URL(string: urlString)
     else { return nil }
 
     // Fetch SHA-256 from checksums.txt asset
@@ -115,17 +119,19 @@ public actor UpdateChecker {
   // MARK: - Checksum fetch
 
   private func fetchChecksum(from assets: [[String: Any]], for filename: String) async -> String? {
-    guard let checksumAsset = assets.first(where: { ($0["name"] as? String) == "checksums.txt" }),
-          let urlString = checksumAsset["browser_download_url"] as? String,
-          let url = URL(string: urlString)
+    guard
+      let checksumAsset = assets.first(where: { ($0["name"] as? String) == "checksums.txt" }),
+      let urlString = checksumAsset["browser_download_url"] as? String,
+      let url = URL(string: urlString)
     else { return nil }
 
     var request = URLRequest(url: url)
     request.setValue(JuncoVersion.userAgent, forHTTPHeaderField: "User-Agent")
     request.timeoutInterval = 10
 
-    guard let (data, _) = try? await URLSession.shared.data(for: request),
-          let text = String(data: data, encoding: .utf8)
+    guard
+      let (data, _) = try? await URLSession.shared.data(for: request),
+      let text = String(data: data, encoding: .utf8)
     else { return nil }
 
     // Format: "<sha256>  <filename>"
@@ -145,10 +151,10 @@ public actor UpdateChecker {
     let localParts = local.split(separator: ".").compactMap { Int($0) }
     let count = max(remoteParts.count, localParts.count)
     for i in 0..<count {
-      let r = i < remoteParts.count ? remoteParts[i] : 0
-      let l = i < localParts.count ? localParts[i] : 0
-      if r > l { return true }
-      if r < l { return false }
+      let remote = i < remoteParts.count ? remoteParts[i] : 0
+      let local = i < localParts.count ? localParts[i] : 0
+      if remote > local { return true }
+      if remote < local { return false }
     }
     return false
   }

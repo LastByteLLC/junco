@@ -40,7 +40,7 @@ struct TokenBudgetTests {
       TokenBudget.classify,
       TokenBudget.plan,
       TokenBudget.execute,
-      TokenBudget.observe,
+      TokenBudget.observe
     ]
 
     for stage in stages {

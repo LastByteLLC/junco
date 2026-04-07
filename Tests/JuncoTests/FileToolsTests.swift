@@ -97,7 +97,7 @@ struct FileToolsTests {
   @Test("listFiles finds project files")
   func listFiles() throws {
     let (dir, ft) = try makeTempDir(files: [
-      "a.swift": "", "b.swift": "", "c.txt": "",
+      "a.swift": "", "b.swift": "", "c.txt": ""
     ])
     defer { cleanup(dir) }
     let list = ft.listFiles()

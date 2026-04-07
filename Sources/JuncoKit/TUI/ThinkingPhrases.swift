@@ -16,21 +16,21 @@ public struct ThinkingPhrases: Sendable {
       "Understanding",
       "Parsing query",
       "Classifying",
-      "Interpreting",
+      "Interpreting"
     ],
     "strategy": [
       "Choosing approach",
       "Weighing options",
       "Strategizing",
       "Considering paths",
-      "Evaluating",
+      "Evaluating"
     ],
     "plan": [
       "Planning steps",
       "Breaking down",
       "Mapping work",
       "Decomposing",
-      "Sequencing",
+      "Sequencing"
     ],
     "execute": [
       "Working",
@@ -42,61 +42,61 @@ public struct ThinkingPhrases: Sendable {
       "Iterating",
       "Computing",
       "Resolving",
-      "Synthesizing",
+      "Synthesizing"
     ],
     "read": [
       "Reading code",
       "Scanning file",
       "Loading context",
       "Parsing source",
-      "Inspecting",
+      "Inspecting"
     ],
     "edit": [
       "Editing code",
       "Rewriting",
       "Modifying",
       "Patching",
-      "Refining",
+      "Refining"
     ],
     "write": [
       "Writing code",
       "Generating",
       "Composing",
       "Drafting",
-      "Creating",
+      "Creating"
     ],
     "bash": [
       "Running command",
       "Executing shell",
       "Processing",
       "Building",
-      "Compiling",
+      "Compiling"
     ],
     "search": [
       "Searching",
       "Scanning codebase",
       "Grepping",
       "Finding matches",
-      "Locating",
+      "Locating"
     ],
     "reflect": [
       "Reviewing",
       "Reflecting",
       "Summarizing",
       "Wrapping up",
-      "Assessing",
+      "Assessing"
     ],
     "fetch": [
       "Fetching URL",
       "Downloading",
-      "Retrieving",
+      "Retrieving"
     ],
     "explain": [
       "Explaining",
       "Describing",
       "Analyzing",
       "Interpreting",
-      "Documenting",
+      "Documenting"
     ],
     "answer-mode": [
       "Searching",
@@ -106,8 +106,8 @@ public struct ThinkingPhrases: Sendable {
       "Querying index",
       "Analyzing results",
       "Researching",
-      "Gathering context",
-    ],
+      "Gathering context"
+    ]
   ]
 
   private let custom: [String: [String]]

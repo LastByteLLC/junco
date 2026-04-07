@@ -12,8 +12,8 @@ public actor AFMAdapter: LLMAdapter {
   /// LoRA adapter loaded from .fmadapter package, if available.
   private var loraAdapter: FoundationModels.SystemLanguageModel.Adapter?
 
-  public nonisolated let backendName = "Apple Foundation Models (Neural Engine)"
-  public nonisolated let isAFM = true
+  nonisolated public let backendName = "Apple Foundation Models (Neural Engine)"
+  nonisolated public let isAFM = true
 
   public init() {}
 
@@ -138,15 +138,28 @@ public actor AFMAdapter: LLMAdapter {
   // MARK: - Token counting
 
   public func countTokens(_ text: String) async -> Int {
-    let fmModel: FoundationModels.SystemLanguageModel = loraAdapter.map { FoundationModels.SystemLanguageModel(adapter: $0) } ?? .default
     if #available(macOS 26.4, iOS 26.4, *) {
-      return (try? await fmModel.tokenCount(for: text)) ?? TokenBudget.estimate(text)
+      return await _tokenCount(text)
     }
     return TokenBudget.estimate(text)
   }
 
   public var contextSize: Int {
-    let fmModel: FoundationModels.SystemLanguageModel = loraAdapter.map { FoundationModels.SystemLanguageModel(adapter: $0) } ?? .default
+    if #available(macOS 26.4, iOS 26.4, *) {
+      return _contextSize
+    }
+    return 4096
+  }
+
+  @available(macOS 26.4, iOS 26.4, *)
+  private func _tokenCount(_ text: String) async -> Int {
+    let fmModel: FoundationModels.SystemLanguageModel = loraAdapter.map { .init(adapter: $0) } ?? .default
+    return (try? await fmModel.tokenCount(for: text)) ?? TokenBudget.estimate(text)
+  }
+
+  @available(macOS 26.4, iOS 26.4, *)
+  private var _contextSize: Int {
+    let fmModel: FoundationModels.SystemLanguageModel = loraAdapter.map { .init(adapter: $0) } ?? .default
     return fmModel.contextSize
   }
 

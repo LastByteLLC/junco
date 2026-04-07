@@ -35,7 +35,7 @@ struct RAGTests {
         public func farewell() {
             print("bye")
         }
-        """,
+        """
     ])
     defer { cleanup(dir) }
 
@@ -61,7 +61,7 @@ struct RAGTests {
         }
 
         enum Status { case active, inactive }
-        """,
+        """
     ])
     defer { cleanup(dir) }
 
@@ -78,7 +78,7 @@ struct RAGTests {
   func fileEntries() throws {
     let dir = try makeTempProject(files: [
       "a.swift": "// file a",
-      "b.swift": "// file b",
+      "b.swift": "// file b"
     ])
     defer { cleanup(dir) }
 
@@ -104,7 +104,7 @@ struct RAGTests {
         func formatDate(_ date: Date) -> String {
             return date.description
         }
-        """,
+        """
     ])
     defer { cleanup(dir) }
 
@@ -121,7 +121,7 @@ struct RAGTests {
   func preferredFiles() throws {
     let dir = try makeTempProject(files: [
       "target.swift": "func target() {}",
-      "other.swift": "func other() {}",
+      "other.swift": "func other() {}"
     ])
     defer { cleanup(dir) }
 

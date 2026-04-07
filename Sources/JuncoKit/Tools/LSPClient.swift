@@ -65,7 +65,7 @@ public actor LSPClient {
     let initResult = await sendRequest(method: "initialize", params: [
       "processId": ProcessInfo.processInfo.processIdentifier,
       "rootUri": "file://\(workingDirectory)",
-      "capabilities": [:] as [String: Any],
+      "capabilities": [:] as [String: Any]
     ] as [String: Any])
 
     if initResult != nil {
@@ -101,8 +101,8 @@ public actor LSPClient {
         "uri": uri,
         "languageId": "swift",
         "version": 1,
-        "text": content,
-      ],
+        "text": content
+      ]
     ] as [String: Any])
 
     // Wait briefly for diagnostics to be published
@@ -110,7 +110,7 @@ public actor LSPClient {
 
     // Close the document
     sendNotification(method: "textDocument/didClose", params: [
-      "textDocument": ["uri": uri],
+      "textDocument": ["uri": uri]
     ] as [String: Any])
 
     // Diagnostics come via notifications, not requests.
@@ -127,17 +127,17 @@ public actor LSPClient {
 
     sendNotification(method: "textDocument/didOpen", params: [
       "textDocument": [
-        "uri": uri, "languageId": "swift", "version": 1, "text": content,
-      ],
+        "uri": uri, "languageId": "swift", "version": 1, "text": content
+      ]
     ] as [String: Any])
 
     let result = await sendRequest(method: "textDocument/hover", params: [
       "textDocument": ["uri": uri],
-      "position": ["line": line - 1, "character": column - 1],
+      "position": ["line": line - 1, "character": column - 1]
     ] as [String: Any])
 
     sendNotification(method: "textDocument/didClose", params: [
-      "textDocument": ["uri": uri],
+      "textDocument": ["uri": uri]
     ] as [String: Any])
 
     if let contents = result?["contents"] as? [String: Any],
@@ -156,17 +156,17 @@ public actor LSPClient {
 
     sendNotification(method: "textDocument/didOpen", params: [
       "textDocument": [
-        "uri": uri, "languageId": "swift", "version": 1, "text": content,
-      ],
+        "uri": uri, "languageId": "swift", "version": 1, "text": content
+      ]
     ] as [String: Any])
 
     let result = await sendRequest(method: "textDocument/definition", params: [
       "textDocument": ["uri": uri],
-      "position": ["line": line - 1, "character": column - 1],
+      "position": ["line": line - 1, "character": column - 1]
     ] as [String: Any])
 
     sendNotification(method: "textDocument/didClose", params: [
-      "textDocument": ["uri": uri],
+      "textDocument": ["uri": uri]
     ] as [String: Any])
 
     // Result can be a single Location or array of Locations
@@ -186,7 +186,7 @@ public actor LSPClient {
     guard initialized else { return [] }
 
     guard let resultData = await sendRequest(method: "workspace/symbol", params: [
-      "query": query,
+      "query": query
     ] as [String: Any]) else { return [] }
 
     // Result is SymbolInformation[]
@@ -248,7 +248,7 @@ public actor LSPClient {
       "jsonrpc": "2.0",
       "id": id,
       "method": method,
-      "params": params,
+      "params": params
     ]
 
     guard let json = try? JSONSerialization.data(withJSONObject: body),
@@ -276,7 +276,7 @@ public actor LSPClient {
     let body: [String: Any] = [
       "jsonrpc": "2.0",
       "method": method,
-      "params": params,
+      "params": params
     ]
     guard let json = try? JSONSerialization.data(withJSONObject: body),
           let content = String(data: json, encoding: .utf8)
@@ -319,7 +319,7 @@ public actor LSPClient {
   }
 
   private func extractMessage(from buffer: inout Data) -> (Data, [String: Any])? {
-    guard let separator = "\r\n\r\n".data(using: .utf8),
+    guard let separator = Data("\r\n\r\n".utf8) as Data?,
           let headerEnd = buffer.range(of: separator)
     else { return nil }
     let headerData = buffer[buffer.startIndex..<headerEnd.lowerBound]

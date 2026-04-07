@@ -269,7 +269,7 @@ public struct SkillLoader: Sendable {
           Link symbols with ``MyType/myMethod(_:)`` (double backtick).
           """,
         tools: nil, maxSteps: nil, fileRoles: nil
-      ),
+      )
     ]
   }
 

@@ -358,7 +358,7 @@ public struct PostGenerationLinter: Sendable {
       ("Testing", ["@Test", "#expect", "#require", "@Suite"]),
       ("AVFoundation", ["AVPlayer", "AVAudioSession", "AVPlayerItem"]),
       ("Observation", ["@Observable"]),
-      ("Combine", ["AnyCancellable", "Publisher", "CurrentValueSubject"]),
+      ("Combine", ["AnyCancellable", "Publisher", "CurrentValueSubject"])
     ]
 
     for (framework, markers) in frameworkMarkers {
@@ -421,8 +421,7 @@ public struct PostGenerationLinter: Sendable {
       // Skip string-heavy lines (likely string literals)
       if trimmed.hasPrefix("\"") || trimmed.hasPrefix("let ") && trimmed.contains("\"\"\"") { continue }
       for ch in trimmed {
-        if ch == "{" { opens += 1 }
-        else if ch == "}" { closes += 1 }
+        if ch == "{" { opens += 1 } else if ch == "}" { closes += 1 }
       }
     }
 

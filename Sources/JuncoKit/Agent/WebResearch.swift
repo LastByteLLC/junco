@@ -44,7 +44,7 @@ public struct WebResearch: Sendable {
     // Queries referencing external APIs/frameworks not in the project
     let externalHints = [
       "how to", "how do i", "what is", "documentation for",
-      "example of", "tutorial", "api for", "library for",
+      "example of", "tutorial", "api for", "library for"
     ]
     let lower = query.lowercased()
     if externalHints.contains(where: { lower.contains($0) }) {
@@ -181,7 +181,7 @@ public struct WebResearch: Sendable {
       "skip to content", "skip to main", "sign in", "sign up", "log in",
       "cookie", "accept all", "privacy policy", "terms of service",
       "subscribe", "newsletter", "follow us", "share this",
-      "advertisement", "sponsored", "loading...",
+      "advertisement", "sponsored", "loading..."
     ]
     s = s.components(separatedBy: "\n")
       .filter { line in

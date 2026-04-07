@@ -99,7 +99,7 @@ public indirect enum SwiftNode: Sendable {
 
 /// Result builder for composing Swift code trees with natural syntax.
 @resultBuilder
-public struct SwiftCodeBuilder {
+public enum SwiftCodeBuilder {
   public static func buildBlock(_ components: [SwiftNode]...) -> [SwiftNode] {
     components.flatMap { $0 }
   }

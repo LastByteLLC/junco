@@ -4,6 +4,6 @@ let package = Package(
   name: "Calc",
   targets: [
     .executableTarget(name: "Calc", path: "Sources"),
-    .testTarget(name: "CalcTests", dependencies: ["Calc"], path: "Tests"),
+    .testTarget(name: "CalcTests", dependencies: ["Calc"], path: "Tests")
   ]
 )

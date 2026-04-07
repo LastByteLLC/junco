@@ -90,7 +90,7 @@ struct SignatureIndexTests {
         member: "fetch(_:)",
         signature: "MyAPI.fetch(_ id: Int) async throws -> Item",
         commonMistakes: ["get", "load"]
-      ),
+      )
     ])
 
     let hint = custom.lookup(

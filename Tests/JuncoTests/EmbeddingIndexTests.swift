@@ -17,7 +17,7 @@ struct EmbeddingIndexTests {
     IndexEntry(filePath: "Tests/JuncoTests/OrchestratorTests.swift", symbolName: "OrchestratorTests", kind: .type,
                lineNumber: 8, snippet: "struct OrchestratorTests {"),
     IndexEntry(filePath: "Package.swift", symbolName: "Package.swift", kind: .file, lineNumber: 1,
-               snippet: "// swift-tools-version: 6.2"),
+               snippet: "// swift-tools-version: 6.2")
   ]
 
   @Test("embedding index can be created")

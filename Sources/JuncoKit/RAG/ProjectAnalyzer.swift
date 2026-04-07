@@ -279,11 +279,7 @@ public struct ProjectAnalyzer: Sendable {
 
     // Determine kind
     let kind: String
-    if firstLine.contains("actor ") { kind = "actor" }
-    else if firstLine.contains("class ") { kind = "class" }
-    else if firstLine.contains("enum ") { kind = "enum" }
-    else if firstLine.contains("protocol ") { kind = "protocol" }
-    else { kind = "struct" }
+    if firstLine.contains("actor ") { kind = "actor" } else if firstLine.contains("class ") { kind = "class" } else if firstLine.contains("enum ") { kind = "enum" } else if firstLine.contains("protocol ") { kind = "protocol" } else { kind = "struct" }
 
     // Extract conformances from ": Protocol1, Protocol2" or ": Superclass, Protocol"
     var conformances: [String] = []

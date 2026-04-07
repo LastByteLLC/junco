@@ -157,10 +157,7 @@ public final class TerminalDriver: @unchecked Sendable, TerminalIO {
   private func readUTF8(firstByte: UInt8) -> Key {
     var bytes = [firstByte]
     let expected: Int
-    if firstByte & 0xE0 == 0xC0 { expected = 2 }
-    else if firstByte & 0xF0 == 0xE0 { expected = 3 }
-    else if firstByte & 0xF8 == 0xF0 { expected = 4 }
-    else { return .unknown(firstByte) }
+    if firstByte & 0xE0 == 0xC0 { expected = 2 } else if firstByte & 0xF0 == 0xE0 { expected = 3 } else if firstByte & 0xF8 == 0xF0 { expected = 4 } else { return .unknown(firstByte) }
 
     for _ in 1..<expected {
       guard let b = readByte() else { break }

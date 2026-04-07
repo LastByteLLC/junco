@@ -25,7 +25,7 @@ struct SymbolIndexTests {
     IndexEntry(filePath: "Package.swift", symbolName: "Package.swift", kind: .file, lineNumber: 1,
                snippet: "// swift-tools-version: 6.2"),
     IndexEntry(filePath: "Sources/Orchestrator.swift", symbolName: "Foundation", kind: .import, lineNumber: 1,
-               snippet: "import Foundation"),
+               snippet: "import Foundation")
   ]
 
   let index = SymbolIndex(entries: testEntries)
@@ -136,7 +136,7 @@ struct SymbolIndexTests {
   func incrementalUpdate() {
     let newEntries = [
       IndexEntry(filePath: "Sources/SafeShell.swift", symbolName: "SafeShellV2", kind: .type, lineNumber: 5,
-                 snippet: "public struct SafeShellV2"),
+                 snippet: "public struct SafeShellV2")
     ]
     let updated = index.replacingFile("Sources/SafeShell.swift", with: newEntries)
     #expect(updated.findByName("SafeShell").isEmpty)
@@ -153,8 +153,10 @@ struct FileIndexerEnhancedTests {
 
   private func index(code: String) -> [IndexEntry] {
     let dir = NSTemporaryDirectory() + "junco-idx-\(UUID().uuidString)"
+    // swiftlint:disable:next force_try
     try! FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(atPath: dir) }
+    // swiftlint:disable:next force_try
     try! code.write(toFile: "\(dir)/Test.swift", atomically: true, encoding: .utf8)
     let indexer = FileIndexer(workingDirectory: dir)
     return indexer.indexProject()

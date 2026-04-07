@@ -191,7 +191,7 @@ public struct URLFetcher: Sendable {
     let entities: [(String, String)] = [
       ("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"),
       ("&quot;", "\""), ("&#39;", "'"), ("&nbsp;", " "),
-      ("&#x27;", "'"), ("&#x2F;", "/"),
+      ("&#x27;", "'"), ("&#x2F;", "/")
     ]
     for (entity, char) in entities {
       text = text.replacingOccurrences(of: entity, with: char)
@@ -231,4 +231,3 @@ public struct URLFetcher: Sendable {
     return parts.isEmpty ? json : parts.joined(separator: "\n\n")
   }
 }
-

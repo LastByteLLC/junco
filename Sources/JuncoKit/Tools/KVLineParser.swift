@@ -60,8 +60,7 @@ public struct KVLineParser: Sendable {
     }
     var result: [String: String] = [:]
     for (key, value) in json {
-      if let str = value as? String { result[key] = str }
-      else { result[key] = "\(value)" }
+      if let str = value as? String { result[key] = str } else { result[key] = "\(value)" }
     }
     return result
   }

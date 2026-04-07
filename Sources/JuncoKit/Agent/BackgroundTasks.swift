@@ -50,7 +50,7 @@ public actor BackgroundTaskRunner {
     self.tasks = [
       PhraseGenerationTask(),
       ReflectionCompactionTask(),
-      IndexFreshnessTask(),
+      IndexFreshnessTask()
     ]
   }
 

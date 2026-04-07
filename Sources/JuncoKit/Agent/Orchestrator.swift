@@ -12,7 +12,7 @@ public actor Orchestrator {
   private let adapter: any LLMAdapter
 
   /// The display name of the active model backend.
-  public nonisolated var backendName: String { adapter.backendName }
+  nonisolated public var backendName: String { adapter.backendName }
   private let shell: SafeShell
   private let files: FileTools
   private let swiftValidator: SwiftValidator
@@ -408,7 +408,6 @@ public actor Orchestrator {
             case .abort:
               debug("ABORT at step \(index + 1)")
               memory.addError("Aborted by user at step \(index + 1)")
-              break
             case .skip:
               break
             }
@@ -449,7 +448,6 @@ public actor Orchestrator {
             case .abort:
               debug("ABORT at step \(index + 1)")
               memory.addError("Aborted by user at step \(index + 1)")
-              break
             case .skip:
               break
             }
@@ -974,7 +972,6 @@ public actor Orchestrator {
     return files
   }
 
-
   // MARK: - Plan Mode
 
   private func runPlan(
@@ -1150,7 +1147,7 @@ public actor Orchestrator {
       "what is junco", "what can you do", "what can junco do",
       "what do you do", "what does junco do", "help me",
       "what are your capabilities", "tell me about yourself",
-      "tell me about junco",
+      "tell me about junco"
     ]
     if identityPatterns.contains(where: { lower.contains($0) }) {
       return "I'm junco, an on-device AI coding agent running on Apple Foundation Models. " +
@@ -1249,7 +1246,7 @@ public actor Orchestrator {
     // Portuguese / French shared
     "explique": "explain", "corrija": "fix", "adicione": "add",
     // Japanese (romanized)
-    "setsumei": "explain", "naoshite": "fix",
+    "setsumei": "explain", "naoshite": "fix"
   ]
 
   /// First words that unambiguously imply build mode (file-modifying action).
@@ -1261,12 +1258,12 @@ public actor Orchestrator {
     // French
     "ajoute", "crée", "répare",
     // German
-    "erstelle", "füge", "behebe",
+    "erstelle", "füge", "behebe"
   ]
 
   /// Task types that imply build mode (post-classification guard).
   private static let buildTaskTypes: Set<String> = [
-    "add", "fix", "refactor", "test",
+    "add", "fix", "refactor", "test"
   ]
 
   /// Classify the agent mode. Tries ML classifier first, falls back to LLM.
@@ -1829,7 +1826,7 @@ public actor Orchestrator {
           PromptSection(label: "File", content: codeContext, priority: 90),
           PromptSection(label: "Memory", content: memory.compactDescription(tokenBudget: 150), priority: 70),
           PromptSection(label: "Past experience", content: reflectionHint, priority: 30),
-          PromptSection(label: "Hints", content: skillHint, priority: 20),
+          PromptSection(label: "Hints", content: skillHint, priority: 20)
         ], budget: editBudget)
       let editInputEst = TokenBudget.estimate(editPrompt) + TokenBudget.estimate(editSystem) + 150
       let editMaxOutput = max(400, await adapter.contextSize - editInputEst - 100)

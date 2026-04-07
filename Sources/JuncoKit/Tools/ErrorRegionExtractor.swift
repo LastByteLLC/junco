@@ -86,7 +86,7 @@ public struct ErrorRegionExtractor: Sendable {
     // Prefer function/type-level declarations over properties for error context.
     // A property error inside a function body is more useful with the full function.
     let enclosingTypes: Set<String> = [
-      "function_declaration", "class_declaration", "protocol_declaration",
+      "function_declaration", "class_declaration", "protocol_declaration"
     ]
     var bestNode: Node?
     var bestSize: UInt32 = .max

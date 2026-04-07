@@ -121,7 +121,7 @@ struct ModeTests {
     let plan = StructuredPlan(
       summary: "Add OAuth login",
       sections: [
-        PlanSection(heading: "Auth Service", items: ["Create OAuthService.swift"], files: ["OAuthService.swift"]),
+        PlanSection(heading: "Auth Service", items: ["Create OAuthService.swift"], files: ["OAuthService.swift"])
       ],
       questions: ["Which provider?"],
       concerns: ["Needs entitlements"]

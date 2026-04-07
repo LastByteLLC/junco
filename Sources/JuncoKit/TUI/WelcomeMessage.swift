@@ -53,7 +53,7 @@ public struct WelcomeMessage: Sendable {
       "  Model: \(Style.dim(modelInfo))",
       "",
       Style.dim("  /help for commands  \u{2502}  @file to target  \u{2502}  exit to quit"),
-      Style.dim(bar),
+      Style.dim(bar)
     ]
     return lines.joined(separator: "\n")
   }
@@ -63,7 +63,7 @@ public struct WelcomeMessage: Sendable {
     return [
       Style.bold("junco v\(version)") + " \(Style.cyan(domain.displayName))",
       Style.dim("\(dir) | \(fileCount)f" + (gitBranch.map { " | \($0)" } ?? "")),
-      Style.dim("/help | @file | exit"),
+      Style.dim("/help | @file | exit")
     ].joined(separator: "\n")
   }
 

@@ -104,7 +104,7 @@ public struct IntentClassifier: @unchecked Sendable {
       "add a new property to the Podcast model",
       "implement the fetch method using URLSession",
       "write a service that calls the iTunes API",
-      "create Sources/PodcastApp/PlayerView.swift with a play button",
+      "create Sources/PodcastApp/PlayerView.swift with a play button"
     ],
     "answer": [
       // Search queries
@@ -129,8 +129,8 @@ public struct IntentClassifier: @unchecked Sendable {
       "how to implement push notifications?",
       // Explain queries
       "explain this code", "what does this function do?", "how does this work?",
-      "why is this structured this way?", "describe the architecture",
-    ],
+      "why is this structured this way?", "describe the architecture"
+    ]
   ]
 
   /// Cosine similarity between two NLEmbedding vectors.
@@ -152,7 +152,7 @@ public struct IntentClassifier: @unchecked Sendable {
       Bundle.main.bundleURL.appendingPathComponent("\(name).mlmodelc"),
       URL(fileURLWithPath: "Training/\(name).mlmodelc"),
       URL(fileURLWithPath: NSHomeDirectory())
-        .appendingPathComponent(".junco/models/\(name).mlmodelc"),
+        .appendingPathComponent(".junco/models/\(name).mlmodelc")
     ]
 
     for path in searchPaths {

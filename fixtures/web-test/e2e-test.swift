@@ -111,8 +111,8 @@ print("Creating Chrome session (headless)...")
 let sessionResp = webdriver("POST", "/session", body: [
   "capabilities": ["alwaysMatch": [
     "browserName": "chrome",
-    "goog:chromeOptions": ["args": ["--headless=new", "--no-sandbox"]],
-  ]],
+    "goog:chromeOptions": ["args": ["--headless=new", "--no-sandbox"]]
+  ]]
 ])
 guard let sessionId = (sessionResp?["value"] as? [String: Any])?["sessionId"] as? String else {
   print("❌ Failed to create session")

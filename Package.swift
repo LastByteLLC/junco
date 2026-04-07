@@ -8,11 +8,11 @@ let package = Package(
   products: [
     .executable(name: "junco", targets: ["junco"]),
     .executable(name: "junco-eval", targets: ["JuncoEval"]),
-    .library(name: "JuncoKit", targets: ["JuncoKit"]),
+    .library(name: "JuncoKit", targets: ["JuncoKit"])
   ],
   dependencies: [
     .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
-    .package(url: "https://github.com/ChimeHQ/SwiftTreeSitter.git", from: "0.9.0"),
+    .package(url: "https://github.com/ChimeHQ/SwiftTreeSitter.git", from: "0.9.0")
   ],
   targets: [
     .target(
@@ -26,7 +26,7 @@ let package = Package(
       name: "JuncoKit",
       dependencies: [
         .product(name: "SwiftTreeSitter", package: "SwiftTreeSitter"),
-        "TreeSitterSwiftGrammar",
+        "TreeSitterSwiftGrammar"
       ],
       path: "Sources/JuncoKit",
       exclude: ["Resources"]
@@ -35,7 +35,7 @@ let package = Package(
       name: "junco",
       dependencies: [
         "JuncoKit",
-        .product(name: "ArgumentParser", package: "swift-argument-parser"),
+        .product(name: "ArgumentParser", package: "swift-argument-parser")
       ],
       path: "Sources/junco"
     ),
@@ -49,6 +49,6 @@ let package = Package(
       dependencies: ["JuncoKit"],
       path: "Tests/JuncoTests",
       exclude: ["Fixtures"]
-    ),
+    )
   ]
 )

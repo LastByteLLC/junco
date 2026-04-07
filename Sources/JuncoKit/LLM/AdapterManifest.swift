@@ -37,7 +37,7 @@ public enum AdapterManifest {
       weightsSHA256: "1dcb38e64663bda23469fee04a2dbcd5929ce0f8f155c020f0ae28e6e231bdb4",
       metadataSHA256: "702ca8900af57b5f96d92975fbdc3510ac8a4a8606e6a0d657d569b3bc6df1ea",
       description: "Junco v4: 11,126 samples, epoch 2, val_loss 0.370"
-    ),
+    )
   ]
 
   /// Find the adapter release matching the current OS version.

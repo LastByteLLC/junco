@@ -71,9 +71,9 @@ public actor ReplayAdapter: LLMAdapter {
   private var replayIndex: Int = 0
   private var harFile: HARFile
 
-  public nonisolated var backendName: String { "Replay" }
-  public nonisolated var isAFM: Bool { false }
-  public nonisolated var contextSize: Int { 4096 }
+  nonisolated public var backendName: String { "Replay" }
+  nonisolated public var isAFM: Bool { false }
+  nonisolated public var contextSize: Int { 4096 }
 
   /// Create a replay adapter.
   /// - Parameter mode: `.record(adapter:outputPath:)` to record, `.replay(inputPath:)` to replay.

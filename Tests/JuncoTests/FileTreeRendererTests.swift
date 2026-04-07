@@ -21,7 +21,7 @@ struct FileTreeRendererTests {
   @Test("renders files with tree characters")
   func basicTree() throws {
     let dir = try makeTempProject(files: [
-      "main.swift": "", "lib/util.swift": "", "lib/helper.swift": "",
+      "main.swift": "", "lib/util.swift": "", "lib/helper.swift": ""
     ])
     defer { try? FileManager.default.removeItem(atPath: dir) }
 
@@ -37,7 +37,7 @@ struct FileTreeRendererTests {
   @Test("directories sorted before files")
   func sortOrder() throws {
     let dir = try makeTempProject(files: [
-      "z_file.swift": "", "a_dir/inner.swift": "",
+      "z_file.swift": "", "a_dir/inner.swift": ""
     ])
     defer { try? FileManager.default.removeItem(atPath: dir) }
 
@@ -53,7 +53,7 @@ struct FileTreeRendererTests {
   @Test("respects maxDepth")
   func maxDepth() throws {
     let dir = try makeTempProject(files: [
-      "a/b/c/d/deep.swift": "",
+      "a/b/c/d/deep.swift": ""
     ])
     defer { try? FileManager.default.removeItem(atPath: dir) }
 
@@ -65,7 +65,7 @@ struct FileTreeRendererTests {
   @Test("summary produces compact output")
   func summary() throws {
     let dir = try makeTempProject(files: [
-      "Sources/a.swift": "", "Sources/b.swift": "", "Tests/t.swift": "",
+      "Sources/a.swift": "", "Sources/b.swift": "", "Tests/t.swift": ""
     ])
     defer { try? FileManager.default.removeItem(atPath: dir) }
 
@@ -78,7 +78,7 @@ struct FileTreeRendererTests {
   @Test("ignores .build directory")
   func ignoresBuild() throws {
     let dir = try makeTempProject(files: [
-      "main.swift": "", ".build/debug/binary": "",
+      "main.swift": "", ".build/debug/binary": ""
     ])
     defer { try? FileManager.default.removeItem(atPath: dir) }
 

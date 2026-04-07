@@ -12,7 +12,7 @@ struct OllamaDetectorTests {
     let models = [
       OllamaModel(name: "llama3:8b", size: 4_000_000_000, parameterSize: "8B"),
       OllamaModel(name: "qwen2.5-coder:7b", size: 3_500_000_000, parameterSize: "7B"),
-      OllamaModel(name: "mistral:7b", size: 3_800_000_000, parameterSize: "7B"),
+      OllamaModel(name: "mistral:7b", size: 3_800_000_000, parameterSize: "7B")
     ]
     let best = OllamaDetector.bestCodingModel(from: models)
     #expect(best?.name == "qwen2.5-coder:7b")
@@ -21,7 +21,7 @@ struct OllamaDetectorTests {
   @Test("bestCodingModel falls back to first available")
   func bestCodingModelFallback() {
     let models = [
-      OllamaModel(name: "custom-model:latest", size: 2_000_000_000, parameterSize: nil),
+      OllamaModel(name: "custom-model:latest", size: 2_000_000_000, parameterSize: nil)
     ]
     let best = OllamaDetector.bestCodingModel(from: models)
     #expect(best?.name == "custom-model:latest")
@@ -37,7 +37,7 @@ struct OllamaDetectorTests {
   func bestCodingModelQwen3() {
     let models = [
       OllamaModel(name: "llama3:8b", size: 4_000_000_000, parameterSize: "8B"),
-      OllamaModel(name: "qwen3:8b", size: 4_200_000_000, parameterSize: "8B"),
+      OllamaModel(name: "qwen3:8b", size: 4_200_000_000, parameterSize: "8B")
     ]
     let best = OllamaDetector.bestCodingModel(from: models)
     #expect(best?.name == "qwen3:8b")
@@ -59,7 +59,7 @@ struct OllamaDetectorTests {
   func isInstalled() {
     // This test just verifies the method runs without crashing.
     // Result depends on whether ollama is installed on the test machine.
-    let _ = OllamaDetector.isInstalled()
+    _ = OllamaDetector.isInstalled()
   }
 }
 
@@ -211,7 +211,7 @@ struct OllamaDetectorLiveTests {
   func availableModels() async {
     let models = await OllamaDetector.availableModels()
     #expect(!models.isEmpty)
-    #expect(models[0].name.count > 0)
+    #expect(!models[0].name.isEmpty)
     #expect(models[0].size > 0)
   }
 
