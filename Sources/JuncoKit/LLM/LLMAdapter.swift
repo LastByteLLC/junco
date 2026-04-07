@@ -4,10 +4,13 @@
 public struct LLMGenerationOptions: Sendable {
   public var maximumResponseTokens: Int?
   public var temperature: Double?
+  /// GBNF grammar string for constrained decoding (Ollama only, ignored by AFM).
+  public var grammar: String?
 
-  public init(maximumResponseTokens: Int? = nil, temperature: Double? = nil) {
+  public init(maximumResponseTokens: Int? = nil, temperature: Double? = nil, grammar: String? = nil) {
     self.maximumResponseTokens = maximumResponseTokens
     self.temperature = temperature
+    self.grammar = grammar
   }
 }
 

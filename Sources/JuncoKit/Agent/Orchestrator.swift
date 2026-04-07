@@ -28,6 +28,7 @@ public actor Orchestrator {
   private let fileWatcher: FileWatcher
   private let lspClient: LSPClient
   private let linter: PostGenerationLinter
+  private let treeSitterRepair: TreeSitterRepair
   private let errorExtractor: ErrorRegionExtractor
   private let templateRenderer: TemplateRenderer
   private let webResearch: WebResearch
@@ -81,6 +82,7 @@ public actor Orchestrator {
     self.fileWatcher = FileWatcher(directory: workingDirectory)
     self.lspClient = LSPClient(workingDirectory: workingDirectory)
     self.linter = PostGenerationLinter()
+    self.treeSitterRepair = TreeSitterRepair()
     self.errorExtractor = ErrorRegionExtractor()
     self.templateRenderer = TemplateRenderer()
     self.webResearch = WebResearch()
@@ -1531,16 +1533,17 @@ public actor Orchestrator {
           }
         }
       }
-      // Route 2: Plain generation with two-phase overflow fallback
+      // Route 2: Code generation
       if !usedTemplate {
-        // Pre-flight overflow check: skip straight to two-phase if prompt is large
-        let system0 = Prompts.createSystem(domain: domain)
-        if target.hasSuffix(".swift"),
-           await TokenGuard.willOverflow(system: system0, prompt: task.specification, adapter: adapter) {
-          debug("Pre-flight: prompt too large for single-pass — using two-phase for \(target)")
+        if target.hasSuffix(".swift") && Config.twoPhaseDefault {
+          // Two-phase generation: skeleton → fill each method body.
+          // Default for all Swift files — structural reliability over single-pass speed.
+          debug("Two-phase generation for \(target)")
           let step = PlanStep(instruction: task.specification, tool: "create", target: target)
           content = try await generateTwoPhase(step: step, memory: &memory)
         } else {
+          // Single-pass generation for non-Swift files (or when two-phase is disabled)
+          let system0 = Prompts.createSystem(domain: domain)
           do {
             var system = system0
             if let taskDomain = task.domain {
@@ -1573,6 +1576,15 @@ public actor Orchestrator {
               throw error
             }
           }
+        }
+      }
+
+      // TreeSitterRepair: deterministic structural fixes before compiler check
+      if target.hasSuffix(".swift") && !content.isEmpty {
+        let (repaired, repairFixes) = treeSitterRepair.repair(content)
+        if !repairFixes.isEmpty {
+          debug("TreeSitterRepair: \(repairFixes.joined(separator: ", "))")
+          content = repaired
         }
       }
 
@@ -1908,23 +1920,37 @@ public actor Orchestrator {
     }
     lines.append("")
 
-    // Phase 2: Fill each method body
+    // Phase 2: Fill each method body with focused context
     let propsSummary = TokenBudget.truncate(skeleton.storedProperties, toTokens: 80)
+    let typeSigs = projectSnapshot.typeSignatureBlock(budget: 80, stepIndex: 0)
     for sig in skeleton.methodSignatures where !sig.isEmpty {
       let shortSig = String(sig.prefix(120))
       debug("  two-phase: filling method \(shortSig.prefix(50))")
       memory.trackCall(estimatedTokens: 400)
+      var fillContext = "Properties: \(propsSummary)"
+      if !typeSigs.isEmpty { fillContext += "\nProject types: \(typeSigs)" }
       let body = try await adapter.generateStructured(
-        prompt: "\(shortSig)\nContext: \(propsSummary)",
+        prompt: "\(shortSig)\nContext: \(fillContext)",
         system: "Implement this Swift method. Return only the method with body. Be concise.",
         as: MethodBody.self
       )
-      lines.append("    \(body.implementation.trimmingCharacters(in: .whitespaces))")
+      // Apply TreeSitterRepair to each individual fill before assembly
+      var impl = body.implementation.trimmingCharacters(in: .whitespaces)
+      let (repairedImpl, _) = treeSitterRepair.repair(impl)
+      impl = repairedImpl
+      lines.append("    \(impl)")
       lines.append("")
     }
 
     lines.append("}")
     var result = lines.joined(separator: "\n")
+
+    // Apply TreeSitterRepair to the assembled file
+    let (repairedResult, repairFixes) = treeSitterRepair.repair(result)
+    if !repairFixes.isEmpty {
+      debug("  two-phase assembly repair: \(repairFixes.joined(separator: ", "))")
+      result = repairedResult
+    }
 
     // Lint the assembled file
     let path = step.target
@@ -2015,7 +2041,8 @@ public actor Orchestrator {
 
       debug("CVF cycle \(cycle + 1): \(result.errorCount) errors")
 
-      // For each error, try to fix with API discovery hints
+      // For each error, try structured fix first, then LLM fallback
+      let fixBuilder = StructuredFixBuilder()
       var fixed = current
       for error in result.errors.prefix(2) {
         // Look up the correct API signature
@@ -2027,9 +2054,30 @@ public actor Orchestrator {
         guard let region = errorExtractor.extractAST(content: fixed, errorLine: firstError.line)
                 ?? errorExtractor.extract(content: fixed, errorLine: firstError.line) else { continue }
 
-        // Build a minimal fix prompt
+        // Try structured fix (may skip LLM entirely)
+        let instruction = fixBuilder.buildFixInstruction(
+          error: firstError, codeRegion: region,
+          apiHint: hint, snapshot: projectSnapshot
+        )
+
+        if let instruction, instruction.confidence == .exact, let replacement = instruction.replacement {
+          // Apply exact fix directly — no LLM call needed
+          debug("  CVF exact fix: \(instruction.description.prefix(80))")
+          let lineRegion = CodeRegion(
+            text: replacement,
+            startLine: firstError.line - 1,
+            endLine: firstError.line - 1
+          )
+          fixed = errorExtractor.splice(original: fixed, region: lineRegion, fix: replacement)
+          continue
+        }
+
+        // Build fix prompt, enriched with structured instruction if available
         var fixPrompt = "Fix this code.\nError: \(String(firstError.message.prefix(150)))"
-        if let hint { fixPrompt += "\n\(hint)" }
+        if let instruction {
+          fixPrompt += "\nFix: \(instruction.description.prefix(200))"
+        }
+        if let hint, instruction == nil { fixPrompt += "\n\(hint)" }
         fixPrompt += "\n\nCode:\n\(region.text)"
 
         // Generate fix (plain text, small)

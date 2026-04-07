@@ -118,12 +118,22 @@ public struct TaskResolver: Sendable {
       let newTargets = intent.targets.filter { !files.exists($0) }
       guard !newTargets.isEmpty else { return nil }
 
-      return newTargets.map { target in
-        let spec = buildCreateSpecification(
-          target: target, query: query, snapshot: snapshot, explicitContext: explicitContext
+      let retriever = ExemplarRetriever()
+      let compressor = ProgressiveCompressor()
+      var tasks: [ConcreteTask] = []
+      for target in newTargets {
+        let role = MicroSkill.inferFileRole(target)
+        let exemplar = await retriever.retrieve(
+          targetPath: target, role: role, snapshot: snapshot,
+          index: index, compressor: compressor, fileReader: files
         )
-        return ConcreteTask(action: .create, target: target, specification: spec)
+        let spec = buildCreateSpecification(
+          target: target, query: query, snapshot: snapshot,
+          explicitContext: explicitContext, exemplar: exemplar
+        )
+        tasks.append(ConcreteTask(action: .create, target: target, specification: spec))
       }
+      return tasks
 
     // Recipe 2: Fix existing file — read then edit
     case "fix":
@@ -177,7 +187,8 @@ public struct TaskResolver: Sendable {
     target: String,
     query: String,
     snapshot: ProjectSnapshot,
-    explicitContext: String
+    explicitContext: String,
+    exemplar: String? = nil
   ) -> String {
     var spec = "Create \(target).\n\nUser request: \(query)\n"
 
@@ -207,14 +218,17 @@ public struct TaskResolver: Sendable {
       spec += "\nIMPORTANT: Use these exact URLs: \(urls.joined(separator: ", "))\n"
     }
 
-    // Add personalized exemplar using actual type names from the snapshot.
-    // If the snapshot has enough info, generate exemplar with real property names.
-    // Otherwise fall back to the generic pattern.
-    let role = MicroSkill.inferFileRole(target)
-    if let personalized = Self.personalizedExemplar(for: role, snapshot: snapshot) {
-      spec += "\n\(personalized)\n"
-    } else if let generic = Self.exemplar(for: role) {
-      spec += "\n\(generic)\n"
+    // Add exemplar: ExemplarRetriever-provided (project match or built-in),
+    // or fall back to personalized/generic exemplar.
+    if let exemplar {
+      spec += "\n\(exemplar)\n"
+    } else {
+      let role = MicroSkill.inferFileRole(target)
+      if let personalized = Self.personalizedExemplar(for: role, snapshot: snapshot) {
+        spec += "\n\(personalized)\n"
+      } else if let generic = Self.exemplar(for: role) {
+        spec += "\n\(generic)\n"
+      }
     }
 
     return spec

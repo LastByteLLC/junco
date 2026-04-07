@@ -36,6 +36,43 @@ public actor OllamaAdapter: LLMAdapter {
     return response.message.content
   }
 
+  // MARK: - Grammar-constrained generation
+
+  /// Generate text with GBNF grammar constraint via /api/generate.
+  /// Uses the lower-level generate endpoint which has more reliable grammar support.
+  /// Grammar and format (JSON Schema) are mutually exclusive.
+  public func generateWithGrammar(
+    prompt: String,
+    system: String?,
+    grammar: String,
+    options: LLMGenerationOptions? = nil
+  ) async throws -> String {
+    // /api/generate uses a single prompt string, not chat messages
+    let effectivePrompt: String
+    if let system, !system.isEmpty {
+      effectivePrompt = "System: \(system)\n\nUser: \(prompt)"
+    } else {
+      effectivePrompt = prompt
+    }
+
+    var body = OllamaGenerateRequest(
+      model: modelName,
+      prompt: effectivePrompt,
+      stream: false,
+      grammar: grammar
+    )
+    if let maxTokens = options?.maximumResponseTokens {
+      body.options = OllamaOptions(numPredict: maxTokens)
+    }
+    if let temp = options?.temperature {
+      if body.options == nil { body.options = OllamaOptions() }
+      body.options?.temperature = temp
+    }
+
+    let response: OllamaGenerateResponse = try await post(path: "/api/generate", body: body)
+    return response.response
+  }
+
   // MARK: - Streaming text generation
 
   public func generateStreaming(
@@ -339,5 +376,24 @@ private struct OllamaOptions: Encodable {
 
 private struct OllamaChatResponse: Decodable {
   let message: OllamaMessage
+  let done: Bool
+}
+
+// MARK: - /api/generate types (for grammar-constrained generation)
+
+private struct OllamaGenerateRequest: Encodable {
+  let model: String
+  let prompt: String
+  let stream: Bool
+  var grammar: String?
+  var options: OllamaOptions?
+
+  enum CodingKeys: String, CodingKey {
+    case model, prompt, stream, grammar, options
+  }
+}
+
+private struct OllamaGenerateResponse: Decodable {
+  let response: String
   let done: Bool
 }
