@@ -1535,15 +1535,28 @@ public actor Orchestrator {
       }
       // Route 2: Code generation
       if !usedTemplate {
-        if target.hasSuffix(".swift") && Config.twoPhaseDefault {
-          // Two-phase generation: skeleton → fill each method body.
-          // Default for all Swift files — structural reliability over single-pass speed.
-          debug("Two-phase generation for \(target)")
+        // Determine if two-phase is appropriate for this file.
+        // Two-phase works well for complex files (views, viewmodels, services) but
+        // produces near-empty skeletons for simple models/configs. Only use it for
+        // complex roles or when the prompt is too large for single-pass.
+        let fileRole = target.hasSuffix(".swift") ? MicroSkill.inferFileRole(target) : ""
+        let usesTwoPhase = Config.twoPhaseDefault
+          && target.hasSuffix(".swift")
+          && ["view", "viewmodel", "service"].contains(fileRole)
+
+        let system0 = Prompts.createSystem(domain: domain)
+        if usesTwoPhase {
+          debug("Two-phase generation for \(target) (role: \(fileRole))")
+          let step = PlanStep(instruction: task.specification, tool: "create", target: target)
+          content = try await generateTwoPhase(step: step, memory: &memory)
+        } else if target.hasSuffix(".swift"),
+                  await TokenGuard.willOverflow(system: system0, prompt: task.specification, adapter: adapter) {
+          // Pre-flight overflow check: skip straight to two-phase if prompt is large
+          debug("Pre-flight: prompt too large for single-pass — using two-phase for \(target)")
           let step = PlanStep(instruction: task.specification, tool: "create", target: target)
           content = try await generateTwoPhase(step: step, memory: &memory)
         } else {
-          // Single-pass generation for non-Swift files (or when two-phase is disabled)
-          let system0 = Prompts.createSystem(domain: domain)
+          // Single-pass generation (default for models, configs, non-Swift, simple files)
           do {
             var system = system0
             if let taskDomain = task.domain {
@@ -1551,7 +1564,6 @@ public actor Orchestrator {
               system += " Use domain-specific names: \(cap), \(cap)Service, \(cap)ViewModel — never generic names like Item or MyApp."
             }
             if target.hasSuffix(".swift") {
-              let fileRole = MicroSkill.inferFileRole(target)
               if let hint = skillLoader.skillHints(
                 domain: memory.intent?.domain ?? "swift",
                 taskType: memory.intent?.taskType ?? "add",
@@ -2054,33 +2066,22 @@ public actor Orchestrator {
         guard let region = errorExtractor.extractAST(content: fixed, errorLine: firstError.line)
                 ?? errorExtractor.extract(content: fixed, errorLine: firstError.line) else { continue }
 
-        // Try structured fix (may skip LLM entirely)
+        // Try structured fix — exact fixes skip the LLM entirely
         let instruction = fixBuilder.buildFixInstruction(
-          error: firstError, codeRegion: region,
-          apiHint: hint, snapshot: projectSnapshot
+          error: firstError, codeRegion: region, apiHint: hint, snapshot: projectSnapshot
         )
-
         if let instruction, instruction.confidence == .exact, let replacement = instruction.replacement {
-          // Apply exact fix directly — no LLM call needed
           debug("  CVF exact fix: \(instruction.description.prefix(80))")
-          let lineRegion = CodeRegion(
-            text: replacement,
-            startLine: firstError.line - 1,
-            endLine: firstError.line - 1
-          )
+          let lineRegion = CodeRegion(text: replacement, startLine: firstError.line - 1, endLine: firstError.line - 1)
           fixed = errorExtractor.splice(original: fixed, region: lineRegion, fix: replacement)
           continue
         }
 
         // Build fix prompt, enriched with structured instruction if available
         var fixPrompt = "Fix this code.\nError: \(String(firstError.message.prefix(150)))"
-        if let instruction {
-          fixPrompt += "\nFix: \(instruction.description.prefix(200))"
-        }
+        if let instruction { fixPrompt += "\nFix: \(instruction.description.prefix(200))" }
         if let hint, instruction == nil { fixPrompt += "\n\(hint)" }
         fixPrompt += "\n\nCode:\n\(region.text)"
-
-        // Generate fix (plain text, small)
         memory.trackCall(estimatedTokens: 400)
         do {
           let fixResult = try await adapter.generate(

@@ -47,8 +47,9 @@ public enum Config {
   /// Temperature for candidate generation (higher = more diverse candidates).
   public static let candidateTemperature = 0.8
 
-  /// Whether two-phase generation (skeleton → fill) is the default for Swift files.
-  /// When true, all Swift file creation uses two-phase; single-pass is for non-Swift only.
+  /// Whether two-phase generation (skeleton → fill) is used for complex Swift files.
+  /// When true, view/viewmodel/service files use two-phase; simple models use single-pass.
+  /// Also used as overflow fallback for any Swift file whose prompt exceeds the context window.
   public static let twoPhaseDefault = true
 
   /// Whether to sandbox bash commands via sandbox-exec.

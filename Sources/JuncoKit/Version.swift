@@ -2,7 +2,7 @@
 
 /// The current junco version. Update this constant when cutting a release.
 public enum JuncoVersion {
-  public static let current = "0.6.1"
+  public static let current = "0.6.2"
 
   /// GitHub repository used for releases and update checks.
   public static let repoOwner = "LastByteLLC"
