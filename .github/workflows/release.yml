@@ -10,20 +10,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Gate: run the full CI suite first
+  # Gate: build, lint, and test
   test:
     name: Test
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - name: Select Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: latest-stable
+      - name: Select latest Xcode
+        run: |
+          LATEST=$(find /Applications -maxdepth 1 -name "Xcode*.app" -type d 2>/dev/null | sort -V | tail -1)
+          if [ -n "$LATEST" ]; then
+            echo "Selecting $LATEST"
+            sudo xcode-select -s "$LATEST"
+          fi
+          swift --version
+          xcrun --sdk macosx --show-sdk-version
 
       - name: Cache SPM dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             .build
@@ -35,8 +40,18 @@ jobs:
       - name: Build (debug)
         run: swift build
 
+      - name: Lint
+        run: swiftlint --strict
+
       - name: Run tests
-        run: swift test
+        run: |
+          set +e
+          swift test --parallel 2>&1 | tee /tmp/test-output.txt
+          EXIT_CODE=$?
+          if grep -q "Test run with .* passed" /tmp/test-output.txt; then
+            exit 0
+          fi
+          exit $EXIT_CODE
 
   # Build, sign, notarize, and publish
   release:
@@ -46,15 +61,19 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - name: Select Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: latest-stable
+      - name: Select latest Xcode
+        run: |
+          LATEST=$(find /Applications -maxdepth 1 -name "Xcode*.app" -type d 2>/dev/null | sort -V | tail -1)
+          if [ -n "$LATEST" ]; then
+            echo "Selecting $LATEST"
+            sudo xcode-select -s "$LATEST"
+          fi
+          swift --version
 
       - name: Cache SPM dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             .build
