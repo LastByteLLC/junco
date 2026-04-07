@@ -10,9 +10,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Gate: build, lint, and test
+  # Gate: build + lint
+  # Tests require FoundationModels.framework at runtime (linked via JuncoKit).
+  # The macos-26 runner has Xcode 26.3 SDK but the host OS is older, so
+  # dlopen fails at test load time. Tests run locally on macOS 26.
   test:
-    name: Test
+    name: Build & Lint
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v6
@@ -42,16 +45,6 @@ jobs:
 
       - name: Lint
         run: swiftlint --strict
-
-      - name: Run tests
-        run: |
-          set +e
-          swift test --parallel 2>&1 | tee /tmp/test-output.txt
-          EXIT_CODE=$?
-          if grep -q "Test run with .* passed" /tmp/test-output.txt; then
-            exit 0
-          fi
-          exit $EXIT_CODE
 
   # Build, sign, notarize, and publish
   release:

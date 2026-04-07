@@ -14,7 +14,7 @@ All code changes must pass `swiftlint --strict` before pushing. The full rule co
 
 ## CI Compatibility
 
-The CI runner uses **macOS 26** (`runs-on: macos-26`). The package requires macOS 26 (`platforms: [.macOS("26.0")]`) because it links `FoundationModels.framework`, which only exists on macOS 26+. The runner OS must match — a macOS 15 runner can cross-compile but the test binary will crash on load.
+The CI runner uses `macos-26` with Xcode 26.3, but the **host OS is older than macOS 26**. The package hard-links `FoundationModels.framework` (via `platforms: [.macOS("26.0")]`), which only exists on macOS 26+. This means `swift build` works (cross-compilation) but `swift test` crashes at `dlopen` — the test binary can't load. CI runs build + lint only; tests run locally on macOS 26.
 
 APIs introduced in newer SDK betas (e.g. `SystemLanguageModel.tokenCount`, `.contextSize`) require a **double guard**:
 
