@@ -19,8 +19,9 @@
 </p>
 
 <p align="center">
-  <a href="#building">Building</a> ·
-  <a href="#quick-start">Quick Start</a> ·
+  <a href="#install">Install</a> ·
+  <a href="#usage">Usage</a> ·
+  <a href="#architecture">Architecture</a> ·
   <a href="#requirements">Requirements</a>
 </p>
 
@@ -28,13 +29,27 @@
 
 **Why Junco?** Junco uses a micro-conversation pipeline to work within AFM's small context window — each stage (classify, plan, execute, reflect) is a separate LLM call with focused context and structured `@Generable` output. A trained CRF text classifier handles intent detection in ~10ms, deterministic strategy selection and conditional reflection skip LLM calls when possible, and a reflexion loop stores insights for future tasks. Junco also uses a [custom LoRA adapter](https://developer.apple.com/documentation/foundationmodels/loading-and-using-a-custom-adapter-with-foundation-models) trained on recent Swift 6.3+ permissively-licensed code, public documentation, and synthetic data.
 
-## Quick Start
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/LastByteLLC/junco/master/install.sh | bash
+```
+
+This downloads the latest signed and notarized binary to `/usr/local/bin`. To install to a custom location:
+
+```bash
+JUNCO_INSTALL_DIR=~/.local/bin curl -fsSL https://raw.githubusercontent.com/LastByteLLC/junco/master/install.sh | bash
+```
+
+Junco auto-updates — run `junco update` anytime to get the latest version.
+
+### Build from source
 
 ```bash
 git clone https://github.com/LastByteLLC/junco.git
 cd junco
-swift build
-swift run junco
+swift build -c release
+cp .build/release/junco /usr/local/bin/
 ```
 
 Requires **macOS 26+** and **Apple Silicon** (M1+). No API keys or configuration needed — Apple Intelligence must be enabled in System Settings.
@@ -147,17 +162,9 @@ Global state lives in `~/.junco/`:
 ## Building
 
 ```bash
-# Debug
-swift build
-
-# Release
-swift build -c release
-
-# Run tests
-swift test
-
-# Install
-cp .build/release/junco /usr/local/bin/
+swift build              # Debug build
+swift build -c release   # Release build
+swift test               # Run tests
 ```
 
 ## Requirements

@@ -69,7 +69,7 @@ public struct URLFetcher: Sendable {
     var request = URLRequest(url: url, timeoutInterval: Self.timeout)
     // Prefer plain text; accept HTML as fallback
     request.setValue("text/plain, text/html;q=0.9, application/json;q=0.8", forHTTPHeaderField: "Accept")
-    request.setValue("junco/0.3 (on-device coding agent)", forHTTPHeaderField: "User-Agent")
+    request.setValue(JuncoVersion.userAgent, forHTTPHeaderField: "User-Agent")
 
     do {
       let (data, response) = try await URLSession.shared.data(for: request)

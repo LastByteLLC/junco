@@ -101,7 +101,7 @@ public struct AdapterDownloader: Sendable {
 
   private func downloadFile(from url: URL, to destination: URL, label: String?, expectedSHA256: String? = nil) async throws {
     var request = URLRequest(url: url)
-    request.setValue("junco/0.4 (on-device coding agent)", forHTTPHeaderField: "User-Agent")
+    request.setValue(JuncoVersion.userAgent, forHTTPHeaderField: "User-Agent")
 
     let (bytes, response) = try await URLSession.shared.bytes(for: request)
 

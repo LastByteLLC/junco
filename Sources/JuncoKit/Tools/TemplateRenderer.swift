@@ -315,16 +315,86 @@ public struct TemplateRenderer: Sendable {
 
   /// Generate KV-line output from the LLM and parse into a dictionary.
   /// Falls back to JSON parsing if KV parsing yields too few fields.
+  /// Returns nil if parsed values are too malformed for safe rendering.
   private func generateKV(
     fields: [(key: String, hint: String)],
     prompt: String,
     system: String,
     adapter: any LLMAdapter
-  ) async throws -> [String: String] {
+  ) async throws -> [String: String]? {
     let kvHeader = KVLineParser.promptHeader(fields: fields)
     let fullPrompt = "\(kvHeader)\n\n\(prompt)"
     let raw = try await adapter.generate(prompt: fullPrompt, system: system)
-    return KVLineParser.parseWithFallback(raw, expectedFields: fields.count)
+    var dict = KVLineParser.parseWithFallback(raw, expectedFields: fields.count)
+    let (sanitized, malformedCount) = Self.sanitizeKVValues(dict, fields: fields)
+    // If more than half the fields are malformed, bail out to plain generation
+    if malformedCount > fields.count / 2 { return nil }
+    dict = sanitized
+    return dict
+  }
+
+  /// Sanitize KV values: detect and fix values that contain raw Swift code fragments,
+  /// multi-line content, or structural characters that would break template rendering.
+  static func sanitizeKVValues(
+    _ dict: [String: String],
+    fields: [(key: String, hint: String)]
+  ) -> (sanitized: [String: String], malformedCount: Int) {
+    var result = dict
+    var malformed = 0
+    // Swift declaration keywords that should never appear in a simple KV value
+    let declKeywords = ["func ", "class ", "struct ", "enum ", "actor ", "protocol ",
+                        "import ", "@Observable", "@main", "var body"]
+    for (key, value) in dict {
+      let trimmed = value.trimmingCharacters(in: .whitespaces)
+      // Multi-line values (embedded newlines) are malformed
+      if trimmed.contains("\n") {
+        result[key] = trimmed.components(separatedBy: "\n").first ?? ""
+        malformed += 1
+        continue
+      }
+      // Values containing Swift declarations are malformed
+      if declKeywords.contains(where: { trimmed.contains($0) }) {
+        // Try to extract just the identifier/value portion
+        result[key] = extractSimpleValue(trimmed, for: key)
+        malformed += 1
+        continue
+      }
+      // Values with unbalanced braces are malformed
+      let opens = trimmed.filter { $0 == "{" }.count
+      let closes = trimmed.filter { $0 == "}" }.count
+      if opens != closes {
+        result[key] = trimmed.filter { $0 != "{" && $0 != "}" }
+        malformed += 1
+        continue
+      }
+      // Values that are just the hint text echoed back
+      let fieldHint = fields.first(where: { $0.key == key })?.hint ?? ""
+      if !fieldHint.isEmpty && trimmed == "(\(fieldHint))" {
+        result[key] = ""
+        malformed += 1
+        continue
+      }
+    }
+    return (result, malformed)
+  }
+
+  /// Extract a simple identifier from a malformed KV value containing Swift code.
+  private static func extractSimpleValue(_ value: String, for key: String) -> String {
+    // "func fetchItems(query: String)" → "fetchItems"
+    if value.contains("func "), let name = value.firstMatch(of: /func\s+(\w+)/) {
+      return String(name.1)
+    }
+    // "class PodcastViewModel" → "PodcastViewModel"
+    for keyword in ["class ", "struct ", "actor ", "enum "] {
+      if value.contains(keyword), let range = value.range(of: keyword) {
+        let after = value[range.upperBound...]
+        return String(after.prefix(while: { $0.isLetter || $0.isNumber || $0 == "_" }))
+      }
+    }
+    // "var items: [Item] = []" → "var items: [Item] = []" (property values are ok for property fields)
+    if key.hasPrefix("property") { return value }
+    // Fallback: take first word
+    return String(value.prefix(while: { $0.isLetter || $0.isNumber || $0 == "_" }))
   }
 
   /// Generate template content by dispatching to the appropriate intent type and renderer.
@@ -358,7 +428,7 @@ public struct TemplateRenderer: Sendable {
       return renderXcconfig(intent)
     } else if name.hasSuffix("app.swift") {
       // KV-line path for App entry point (2 fields)
-      let dict = try await generateKV(fields: AppEntryPointIntent.kvFields, prompt: prompt, system: system, adapter: adapter)
+      guard let dict = try await generateKV(fields: AppEntryPointIntent.kvFields, prompt: prompt, system: system, adapter: adapter) else { return nil }
       var intent = AppEntryPointIntent(fromKV: dict)
       if let firstView = snapshot.views.first, intent.rootView == "ContentView" || intent.rootView.isEmpty {
         intent.rootView = firstView.name
@@ -367,13 +437,13 @@ public struct TemplateRenderer: Sendable {
 
     } else if name.contains("model") && name.hasSuffix(".swift") && !name.contains("viewmodel") {
       // KV-line path for Model (6 fields)
-      let dict = try await generateKV(fields: ModelFlatIntent.kvFields, prompt: prompt, system: system, adapter: adapter)
+      guard let dict = try await generateKV(fields: ModelFlatIntent.kvFields, prompt: prompt, system: system, adapter: adapter) else { return nil }
       let intent = ModelFlatIntent(fromKV: dict)
       return renderModelFlat(intent)
 
     } else if name.contains("service") && name.hasSuffix(".swift") {
       // KV-line path for Service (7 fields)
-      let dict = try await generateKV(fields: ServiceFlatIntent.kvFields, prompt: prompt, system: system, adapter: adapter)
+      guard let dict = try await generateKV(fields: ServiceFlatIntent.kvFields, prompt: prompt, system: system, adapter: adapter) else { return nil }
       let intent = ServiceFlatIntent(fromKV: dict)
       let rendered = renderServiceFlat(intent)
       if let error = validateTemplateOutput(rendered, filePath: filePath) {
@@ -385,18 +455,19 @@ public struct TemplateRenderer: Sendable {
       let deriver = SnapshotDeriver()
       // Snapshot-driven KV-line path (4 fields) when service data is available
       if !snapshot.services.isEmpty {
-        let dict = try await generateKV(fields: ViewModelReducedIntent.kvFields, prompt: prompt, system: system, adapter: adapter)
-        let reduced = ViewModelReducedIntent(fromKV: dict)
-        if let full = deriver.deriveViewModel(reduced: reduced, snapshot: snapshot) {
-          let rendered = renderViewModelFlat(full)
-          if let error = validateTemplateOutput(rendered, filePath: filePath) {
-            throw PipelineError.validationFailed(file: filePath, error: "Template: \(error)")
+        if let dict = try await generateKV(fields: ViewModelReducedIntent.kvFields, prompt: prompt, system: system, adapter: adapter) {
+          let reduced = ViewModelReducedIntent(fromKV: dict)
+          if let full = deriver.deriveViewModel(reduced: reduced, snapshot: snapshot) {
+            let rendered = renderViewModelFlat(full)
+            if let error = validateTemplateOutput(rendered, filePath: filePath) {
+              throw PipelineError.validationFailed(file: filePath, error: "Template: \(error)")
+            }
+            return rendered
           }
-          return rendered
         }
       }
       // Fallback: KV-line with full 8 fields
-      let dict = try await generateKV(fields: ViewModelFlatIntent.kvFields, prompt: prompt, system: system, adapter: adapter)
+      guard let dict = try await generateKV(fields: ViewModelFlatIntent.kvFields, prompt: prompt, system: system, adapter: adapter) else { return nil }
       let intent = ViewModelFlatIntent(fromKV: dict)
       let rendered = renderViewModelFlat(intent)
       if let error = validateTemplateOutput(rendered, filePath: filePath) {
@@ -410,18 +481,19 @@ public struct TemplateRenderer: Sendable {
       let hasModel = snapshot.models.contains(where: { !$0.name.contains("ViewModel") })
       // Snapshot-driven KV-line path (3 fields) when ViewModel + Model data available
       if hasVM && hasModel {
-        let dict = try await generateKV(fields: ListViewReducedIntent.kvFields, prompt: prompt, system: system, adapter: adapter)
-        let reduced = ListViewReducedIntent(fromKV: dict)
-        if let full = deriver.deriveListView(reduced: reduced, snapshot: snapshot) {
-          let rendered = renderListView(full)
-          if let error = validateTemplateOutput(rendered, filePath: filePath) {
-            throw PipelineError.validationFailed(file: filePath, error: "Template: \(error)")
+        if let dict = try await generateKV(fields: ListViewReducedIntent.kvFields, prompt: prompt, system: system, adapter: adapter) {
+          let reduced = ListViewReducedIntent(fromKV: dict)
+          if let full = deriver.deriveListView(reduced: reduced, snapshot: snapshot) {
+            let rendered = renderListView(full)
+            if let error = validateTemplateOutput(rendered, filePath: filePath) {
+              throw PipelineError.validationFailed(file: filePath, error: "Template: \(error)")
+            }
+            return rendered
           }
-          return rendered
         }
       }
       // Fallback: KV-line with full 9 fields
-      let dict = try await generateKV(fields: ListViewFlatIntent.kvFields, prompt: prompt, system: system, adapter: adapter)
+      guard let dict = try await generateKV(fields: ListViewFlatIntent.kvFields, prompt: prompt, system: system, adapter: adapter) else { return nil }
       let intent = ListViewFlatIntent(fromKV: dict)
       let rendered = renderListView(intent)
       if let error = validateTemplateOutput(rendered, filePath: filePath) {

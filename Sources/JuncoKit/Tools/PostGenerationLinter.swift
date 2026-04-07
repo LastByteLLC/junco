@@ -23,6 +23,7 @@ public struct PostGenerationLinter: Sendable {
     result = fixMissingImports(result)
     result = fixXCTestToSwiftTesting(result)
     result = fixCodableLetId(result)
+    result = balanceBraces(result)
     return result
   }
 
@@ -403,6 +404,59 @@ public struct PostGenerationLinter: Sendable {
       of: "let id = UUID()",
       with: "var id = UUID()"
     )
+  }
+
+  // MARK: - Brace Balancing
+
+  /// Fix unbalanced braces in generated Swift code.
+  /// AFM frequently generates code with extra trailing `}` or missing closing braces.
+  /// This pass trims extraneous trailing braces or appends missing ones.
+  private func balanceBraces(_ content: String) -> String {
+    let lines = content.components(separatedBy: "\n")
+    var opens = 0
+    var closes = 0
+    // Count braces outside string literals (rough but effective for generated code)
+    for line in lines {
+      let trimmed = line.trimmingCharacters(in: .whitespaces)
+      // Skip string-heavy lines (likely string literals)
+      if trimmed.hasPrefix("\"") || trimmed.hasPrefix("let ") && trimmed.contains("\"\"\"") { continue }
+      for ch in trimmed {
+        if ch == "{" { opens += 1 }
+        else if ch == "}" { closes += 1 }
+      }
+    }
+
+    if opens == closes { return content }
+
+    var result = lines
+
+    if closes > opens {
+      // Too many closing braces — remove extraneous `}` from the end
+      var excess = closes - opens
+      while excess > 0 && !result.isEmpty {
+        let lastTrimmed = result.last?.trimmingCharacters(in: .whitespaces) ?? ""
+        if lastTrimmed == "}" || lastTrimmed.isEmpty {
+          if lastTrimmed == "}" { excess -= 1 }
+          result.removeLast()
+        } else {
+          break
+        }
+      }
+      // If we couldn't remove enough from the end, return original
+      if excess > 0 { return content }
+    } else {
+      // Too few closing braces — append missing `}` at the end
+      let missing = opens - closes
+      // Only fix small imbalances (1-2 braces) to avoid masking deeper issues
+      if missing > 2 { return content }
+      for _ in 0..<missing {
+        result.append("}")
+      }
+    }
+
+    var fixed = result.joined(separator: "\n")
+    if !fixed.hasSuffix("\n") { fixed += "\n" }
+    return fixed
   }
 
   // MARK: - Plain Text Output Cleanup

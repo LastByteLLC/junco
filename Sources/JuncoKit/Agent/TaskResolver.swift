@@ -463,7 +463,8 @@ public struct TaskResolver: Sendable {
 
   /// Extract the primary domain noun from an app creation query.
   /// "build a podcast app" → "podcast", "create a weather application" → "weather"
-  static func inferAppDomain(_ query: String) -> String {
+  /// Also checks the project directory name as a fallback.
+  static func inferAppDomain(_ query: String, projectDirectory: String? = nil) -> String {
     let lower = query.lowercased()
     let patterns = [
       #"(?:build|create|make)\s+(?:a|an)\s+(\w+)\s+(?:app|application|project)"#,
@@ -472,10 +473,30 @@ public struct TaskResolver: Sendable {
       if let regex = try? NSRegularExpression(pattern: pattern),
          let match = regex.firstMatch(in: lower, range: NSRange(lower.startIndex..., in: lower)),
          let range = Range(match.range(at: 1), in: lower) {
-        return String(lower[range])
+        let domain = String(lower[range])
+        if domain != "new" && domain != "simple" && domain != "basic" && domain != "small" {
+          return domain
+        }
       }
     }
-    return "app"
+    // Fallback: infer from project directory name (e.g. "JuncoPodcastApp" → "podcast")
+    if let dir = projectDirectory {
+      let dirName = (dir as NSString).lastPathComponent.lowercased()
+      // Strip common suffixes
+      for suffix in ["app", "project", "sample", "demo"] {
+        if dirName.hasSuffix(suffix) && dirName.count > suffix.count {
+          let stripped = String(dirName.dropLast(suffix.count))
+          // Strip common prefixes like "junco"
+          for prefix in ["junco", "my", "the"] {
+            if stripped.hasPrefix(prefix) && stripped.count > prefix.count {
+              return String(stripped.dropFirst(prefix.count))
+            }
+          }
+          if !stripped.isEmpty { return stripped }
+        }
+      }
+    }
+    return "item"
   }
 
   /// Generate ordered create tasks for an app scaffold.
@@ -486,7 +507,7 @@ public struct TaskResolver: Sendable {
     snapshot: ProjectSnapshot,
     explicitContext: String
   ) -> [ConcreteTask] {
-    let domain = Self.inferAppDomain(query)
+    let domain = Self.inferAppDomain(query, projectDirectory: files.workingDirectory)
     let cap = domain.prefix(1).uppercased() + domain.dropFirst()
 
     // Detect source directory from Package.swift target path or existing Swift files
@@ -505,16 +526,23 @@ public struct TaskResolver: Sendable {
       }
     }
 
+    // Check if an @main entry point already exists
+    let existingFiles = files.listFiles(extensions: ["swift"])
+    let hasExistingMain = existingFiles.contains(where: { path in
+      guard let content = try? files.read(path: path, maxTokens: 100) else { return false }
+      return content.contains("@main")
+    })
+
     // Extract URLs from the original query for the service spec
     let urls = extractURLs(query)
     let urlHint = urls.isEmpty ? "" : "\nIMPORTANT: Use this exact URL: \(urls.first ?? "")"
 
-    // Generate narrow, file-specific tasks. Each spec is tailored so the model
-    // (and template system) generates ONLY the content for that file.
+    // Generate narrow, file-specific tasks using the domain name (e.g. "Podcast")
+    // not generic "App" prefix.
     var tasks: [ConcreteTask] = []
 
-    // Task 1: Model (use "Models" in filename so template router picks it up)
-    let modelTarget = "\(sourceDir)\(cap)Models.swift"
+    // Task 1: Model
+    let modelTarget = "\(sourceDir)\(cap).swift"
     if !files.exists(modelTarget) {
       tasks.append(ConcreteTask(
         action: .create, target: modelTarget,
@@ -522,7 +550,7 @@ public struct TaskResolver: Sendable {
       ))
     }
 
-    // Task 2: Service (short spec to fit within 4K with template schema overhead)
+    // Task 2: Service
     let serviceTarget = "\(sourceDir)\(cap)Service.swift"
     if !files.exists(serviceTarget) {
       tasks.append(ConcreteTask(
@@ -550,15 +578,18 @@ public struct TaskResolver: Sendable {
     }
 
     // Task 5: App entry point — deterministic, no LLM call needed.
-    let appTarget = "\(sourceDir)\(cap)App.swift"
-    if !files.exists(appTarget) {
-      let appContent = TemplateRenderer().renderAppEntryPoint(AppEntryPointIntent(
-        appName: "\(cap)App", rootView: "\(cap)ListView", stateProperties: []
-      ))
-      tasks.append(ConcreteTask(
-        action: .create, target: appTarget,
-        specification: appContent
-      ))
+    // Skip if an @main entry point already exists to avoid duplicate @main errors.
+    if !hasExistingMain {
+      let appTarget = "\(sourceDir)\(cap)App.swift"
+      if !files.exists(appTarget) {
+        let appContent = TemplateRenderer().renderAppEntryPoint(AppEntryPointIntent(
+          appName: "\(cap)App", rootView: "\(cap)ListView", stateProperties: []
+        ))
+        tasks.append(ConcreteTask(
+          action: .create, target: appTarget,
+          specification: appContent
+        ))
+      }
     }
 
     return tasks

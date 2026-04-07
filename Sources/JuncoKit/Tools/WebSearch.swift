@@ -28,7 +28,7 @@ public struct WebSearch: Sendable {
 
     do {
       var request = URLRequest(url: url, timeoutInterval: 10)
-      request.setValue("junco/0.3 (on-device coding agent)", forHTTPHeaderField: "User-Agent")
+      request.setValue(JuncoVersion.userAgent, forHTTPHeaderField: "User-Agent")
       let (data, _) = try await URLSession.shared.data(for: request)
 
       guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {

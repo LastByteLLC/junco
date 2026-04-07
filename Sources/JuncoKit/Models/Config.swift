@@ -36,7 +36,10 @@ public enum Config {
   public static let bashTimeout: TimeInterval = 30
 
   /// Maximum retries when code validation (Swift) fails.
-  public static let maxValidationRetries = 1
+  public static let maxValidationRetries = 2
+
+  /// Maximum CVF (compile-verify-fix) cycles for view files (SwiftUI bodies are harder).
+  public static let maxCVFCyclesView = 3
 
   /// Number of candidates to generate for multi-sample compile-select.
   public static let candidateCount = 3

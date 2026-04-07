@@ -31,7 +31,8 @@ struct Junco: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "junco",
     abstract: "An AI coding agent powered by on-device language models.",
-    version: "0.5.0"
+    version: JuncoVersion.current,
+    subcommands: [Update.self]
   )
 
   @Option(name: .shortAndLong, help: "Working directory (default: current)")
@@ -290,6 +291,12 @@ struct Junco: AsyncParsableCommand {
     var orchestrator = Orchestrator(adapter: resolvedAdapter, workingDirectory: cwd)
     if verbose { await orchestrator.setVerbose(true) }
 
+    // Background update check (non-blocking, respects offline and pipe mode)
+    if !offline {
+      let checker = UpdateChecker()
+      await checker.checkInBackground(currentVersion: JuncoVersion.current, isPipe: pipe)
+    }
+
     let session = SessionManager(workingDirectory: cwd)
     let forker = ConversationForker(workingDirectory: cwd)
     let history = CommandHistory()
@@ -328,7 +335,7 @@ struct Junco: AsyncParsableCommand {
     let welcome = WelcomeMessage(
       domain: domain, gitBranch: gitBranch,
       fileCount: fileCount, reflectionCount: reflectionCount,
-      workingDirectory: cwd, version: "0.4.0",
+      workingDirectory: cwd, version: JuncoVersion.current,
       modelInfo: resolvedAdapter.backendName
     )
     print(welcome.render(width: Terminal.terminalWidth()))

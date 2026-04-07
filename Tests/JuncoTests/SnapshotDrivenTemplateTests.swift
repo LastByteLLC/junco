@@ -360,9 +360,9 @@ struct AppScaffoldTests {
     #expect(TaskResolver.inferAppDomain("build an expense app") == "expense")
   }
 
-  @Test("inferAppDomain falls back to 'app' for unrecognized patterns")
+  @Test("inferAppDomain falls back to 'item' for unrecognized patterns")
   func inferDomainFallback() {
-    #expect(TaskResolver.inferAppDomain("do something cool") == "app")
+    #expect(TaskResolver.inferAppDomain("do something cool") == "item")
   }
 
   @Test("Reduced intents are Codable round-trippable")

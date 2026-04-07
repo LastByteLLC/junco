@@ -1562,8 +1562,12 @@ public actor Orchestrator {
       }
 
       // Per-file compile-verify-fix with API discovery hints
+      // View files get more CVF cycles since SwiftUI bodies are structurally harder
       if target.hasSuffix(".swift") && !content.isEmpty {
-        content = await compileVerifyFix(content: content, filePath: target, memory: &memory)
+        let fileName = (target as NSString).lastPathComponent.lowercased()
+        let isViewFile = fileName.contains("view") || fileName.contains("screen")
+        let cycles = isViewFile ? Config.maxCVFCyclesView : 2
+        content = await compileVerifyFix(content: content, filePath: target, memory: &memory, maxCycles: cycles)
       }
 
       // Validate and fix (syntax-level validation + linting)
@@ -1974,7 +1978,8 @@ public actor Orchestrator {
     memory: inout WorkingMemory,
     maxCycles: Int = 2
   ) async -> String {
-    var current = content
+    // Pre-pass: apply brace balancing and lint fixes before compilation
+    var current = linter.lint(content: content, filePath: filePath)
     let tempDir = NSTemporaryDirectory()
     let fileName = (filePath as NSString).lastPathComponent
     let tempPath = (tempDir as NSString).appendingPathComponent("junco_cvf_\(fileName)")
