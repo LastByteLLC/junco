@@ -15,11 +15,10 @@ public struct TokenGuard: Sendable {
 
   /// Conservative token estimate (pre-26.4 fallback).
   /// TN3193: "roughly three to four characters in Latin alphabet languages"
+  /// Code has many short tokens (keywords, brackets) — use 3 chars/token uniformly.
   /// Structured output (JSON) uses 3 chars/token due to escaping overhead.
-  /// Plain text uses 4 chars/token.
   public static func estimate(_ text: String, structured: Bool = false) -> Int {
-    let divisor = structured ? 3 : 4
-    return max(1, text.utf8.count / divisor)
+    max(1, text.utf8.count / 3)
   }
 
   /// Measure exact tokens if available (iOS 26.4+), otherwise estimate.

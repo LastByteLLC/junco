@@ -13,8 +13,8 @@ public enum Config {
   /// AFM context window size in tokens.
   public static let contextWindow = 4096
 
-  /// Approximate characters per token (conservative for mixed code/English).
-  public static let charsPerToken = 4
+  /// Approximate characters per token (conservative for code with short tokens).
+  public static let charsPerToken = 3
 
   // MARK: - Session
 

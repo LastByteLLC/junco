@@ -21,9 +21,10 @@ public enum TokenBudget {
   // MARK: - Estimation
 
   /// Estimate token count from a string.
-  /// TN3193: "roughly three to four characters" — use 4 for plain text, 3 for JSON.
+  /// TN3193: "roughly three to four characters" — use 3 uniformly.
+  /// Code has many short tokens (keywords, brackets, operators) that inflate the count.
   public static func estimate(_ text: String) -> Int {
-    max(1, text.utf8.count / 4)
+    max(1, text.utf8.count / 3)
   }
 
   /// Estimate for structured output (JSON escaping inflates ~33%).

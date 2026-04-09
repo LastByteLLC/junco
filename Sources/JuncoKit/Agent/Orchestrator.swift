@@ -1600,23 +1600,21 @@ public actor Orchestrator {
         }
       }
 
-      // Per-file compile-verify-fix with API discovery hints
-      // View files get more CVF cycles since SwiftUI bodies are structurally harder
-      if target.hasSuffix(".swift") && !content.isEmpty {
+      // CVF + validation: skip Package.swift (PackageDescription unavailable to plain swiftc)
+      let isManifest = target.lowercased().hasSuffix("package.swift")
+      if target.hasSuffix(".swift") && !content.isEmpty && !isManifest {
         let fileName = (target as NSString).lastPathComponent.lowercased()
         let isViewFile = fileName.contains("view") || fileName.contains("screen")
         let cycles = isViewFile ? Config.maxCVFCyclesView : 2
         content = await compileVerifyFix(content: content, filePath: target, memory: &memory, maxCycles: cycles)
       }
-
-      // Format with swift-format (if available)
       content = linter.format(content: content, filePath: target)
-
-      // Validate and fix (syntax-level validation + linting)
-      let validated = try await validateAndFix(content: content, filePath: target, memory: &memory)
-      content = validated.content
-      if let error = validated.error {
-        return StepObservation(tool: "create", outcome: .validationFailed, keyFact: error)
+      if !isManifest {
+        let validated = try await validateAndFix(content: content, filePath: target, memory: &memory)
+        content = validated.content
+        if let error = validated.error {
+          return StepObservation(tool: "create", outcome: .validationFailed, keyFact: error)
+        }
       }
 
       // Permission check
@@ -1915,10 +1913,13 @@ public actor Orchestrator {
     debug("  two-phase: generating skeleton")
 
     // Phase 1: Skeleton
+    // Extract URLs so they survive truncation and appear in the skeleton prompt
+    let urls = Self.extractURLs(memory.query)
+    let urlHint = urls.isEmpty ? "" : "\nURLs: \(urls.joined(separator: ", "))"
     memory.trackCall(estimatedTokens: 800)
     let skeleton = try await adapter.generateStructured(
-      prompt: "Create the structure for: \(step.instruction)\nUser request: \(query)",
-      system: "Generate ONLY the file skeleton: imports, type declaration, properties, and method signatures WITHOUT bodies. No implementation code.",
+      prompt: "Create the structure for: \(TokenBudget.truncate(step.instruction, toTokens: 200))\nUser request: \(query)\(urlHint)",
+      system: "Generate the file skeleton: imports, type declaration, properties, and method signatures WITHOUT bodies. Include ALL methods the user needs — do not return empty methodSignatures.",
       as: CodeSkeleton.self
     )
 
@@ -2114,6 +2115,9 @@ public actor Orchestrator {
     var content = linter.lint(content: content, filePath: filePath)
     let originalContent = content // preserve pre-retry content
 
+    // Brief task context so retries know the original intent
+    let taskHint = TokenBudget.truncate(memory.query, toTokens: 60)
+
     var retries = 0
     while retries < Config.maxValidationRetries {
       let feedback = swiftValidator.feedbackForLLM(code: content, filePath: filePath)
@@ -2124,7 +2128,7 @@ public actor Orchestrator {
         debug("Targeted retry \(retries) for \(filePath) (lines \(region.startLine)-\(region.endLine)): \(error)")
         memory.trackCall(estimatedTokens: 500)
         let fixed = try await adapter.generateStructured(
-          prompt: "Fix this code.\nError: \(String(error.prefix(200)))\n\nCode:\n\(region.text)",
+          prompt: "Fix this code.\nTask: \(taskHint)\nError: \(String(error.prefix(200)))\n\nCode:\n\(region.text)",
           system: "Fix ONLY this code region. Return the corrected code.",
           as: CodeFragment.self
         )
@@ -2134,7 +2138,7 @@ public actor Orchestrator {
         memory.trackCall(estimatedTokens: 800)
         let truncatedCode = TokenBudget.truncate(content, toTokens: 800)
         let fixed = try await adapter.generateStructured(
-          prompt: "Fix this code.\nError: \(String(error.prefix(200)))\n\nCode:\n\(truncatedCode)",
+          prompt: "Fix this code.\nTask: \(taskHint)\nError: \(String(error.prefix(200)))\n\nCode:\n\(truncatedCode)",
           system: "Fix the error. Return the complete corrected file.",
           as: CreateParams.self
         )

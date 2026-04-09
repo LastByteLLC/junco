@@ -141,10 +141,10 @@ public actor AFMAdapter: LLMAdapter {
     #if compiler(>=6.3)
     if #available(macOS 26.4, iOS 26.4, *) {
       let fmModel: FoundationModels.SystemLanguageModel = loraAdapter.map { .init(adapter: $0) } ?? .default
-      return (try? await fmModel.tokenCount(for: text)) ?? TokenBudget.estimate(text)
+      return (try? await fmModel.tokenCount(for: text)) ?? AFMTokenEstimator.countTokens(text)
     }
     #endif
-    return TokenBudget.estimate(text)
+    return AFMTokenEstimator.countTokens(text)
   }
 
   public var contextSize: Int {

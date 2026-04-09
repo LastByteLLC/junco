@@ -6,12 +6,12 @@ import Testing
 @Suite("TokenBudget")
 struct TokenBudgetTests {
 
-  @Test("estimates roughly 1 token per 4 characters")
+  @Test("estimates roughly 1 token per 3 characters")
   func estimation() {
-    // 100 characters → ~25 tokens
+    // 100 characters → ~33 tokens (conservative for code)
     let text = String(repeating: "a", count: 100)
     let estimate = TokenBudget.estimate(text)
-    #expect(estimate == 25)
+    #expect(estimate == 33)
   }
 
   @Test("empty string returns 1 token minimum")

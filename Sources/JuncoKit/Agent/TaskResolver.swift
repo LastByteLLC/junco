@@ -143,7 +143,8 @@ public struct TaskResolver: Sendable {
       return existingTargets.map { target in
         let content = (try? files.read(path: target, maxTokens: 800)) ?? ""
         let spec = buildEditSpecification(
-          target: target, query: query, existingContent: content, snapshot: snapshot
+          target: target, query: query, existingContent: content, snapshot: snapshot,
+          explicitContext: explicitContext
         )
         return ConcreteTask(action: .edit, target: target, specification: spec)
       }
@@ -165,7 +166,8 @@ public struct TaskResolver: Sendable {
       return existingTargets.map { target in
         let content = (try? files.read(path: target, maxTokens: 800)) ?? ""
         let spec = buildEditSpecification(
-          target: target, query: query, existingContent: content, snapshot: snapshot
+          target: target, query: query, existingContent: content, snapshot: snapshot,
+          explicitContext: explicitContext
         )
         return ConcreteTask(action: .edit, target: target, specification: spec)
       }
@@ -303,15 +305,26 @@ public struct TaskResolver: Sendable {
     target: String,
     query: String,
     existingContent: String,
-    snapshot: ProjectSnapshot
+    snapshot: ProjectSnapshot,
+    explicitContext: String = ""
   ) -> String {
     var spec = "Edit \(target).\n\nUser request: \(query)\n"
 
     spec += "\nCurrent file content:\n\(TokenBudget.truncateSmart(existingContent, toTokens: 600))\n"
 
-    let context = snapshot.compactDescription(budget: 200)
+    if !explicitContext.isEmpty {
+      spec += "\nReference:\n\(TokenBudget.truncate(explicitContext, toTokens: 200))\n"
+    }
+
+    let context = snapshot.compactDescription(budget: 150)
     if !context.isEmpty {
       spec += "\nProject context:\n\(context)\n"
+    }
+
+    // Add URL hints so the LLM uses exact URLs from the request
+    let urls = extractURLs(query)
+    if !urls.isEmpty {
+      spec += "\nIMPORTANT: Use these exact URLs: \(urls.joined(separator: ", "))\n"
     }
 
     spec += "\nIMPORTANT: Apply ONLY the changes described in the user request. "

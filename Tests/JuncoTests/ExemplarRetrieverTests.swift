@@ -158,7 +158,7 @@ struct ExemplarRetrieverTests {
       let exemplar = await retriever.loadBuiltInExemplar(for: role)
       if let exemplar {
         let tokens = TokenBudget.estimate(exemplar)
-        #expect(tokens <= 250, "Exemplar for '\(role)' is \(tokens) tokens, expected <= 250")
+        #expect(tokens <= 340, "Exemplar for '\(role)' is \(tokens) tokens, expected <= 340")
       }
     }
   }

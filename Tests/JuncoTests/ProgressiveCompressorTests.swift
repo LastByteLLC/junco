@@ -63,7 +63,7 @@ struct ProgressiveCompressorTests {
 
   @Test("micro tier keeps only symbol names")
   func microTier() {
-    let result = compressor.compress(code: sampleCode, target: 20)
+    let result = compressor.compress(code: sampleCode, target: 25)
     #expect(result.tier == .micro)
     if result.tier == .micro {
       #expect(result.compressed.contains("SampleService"))

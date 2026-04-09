@@ -121,7 +121,7 @@ struct ContextQualityTests {
 
   @Test("truncateSmart on code preserves declarations")
   func smartTruncateCode() {
-    let result = TokenBudget.truncateSmart(orchestratorCode, toTokens: 50)
+    let result = TokenBudget.truncateSmart(orchestratorCode, toTokens: 70)
     // Should include the import and actor declaration (near the top)
     #expect(result.contains("import Foundation"))
     #expect(result.contains("actor Orchestrator"))
