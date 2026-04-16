@@ -8,6 +8,7 @@ let package = Package(
   products: [
     .executable(name: "junco", targets: ["junco"]),
     .executable(name: "junco-eval", targets: ["JuncoEval"]),
+    .executable(name: "afm-probe", targets: ["AFMLoraProbe"]),
     .library(name: "JuncoKit", targets: ["JuncoKit"])
   ],
   dependencies: [
@@ -43,6 +44,11 @@ let package = Package(
       name: "JuncoEval",
       dependencies: ["JuncoKit"],
       path: "Sources/JuncoEval"
+    ),
+    .executableTarget(
+      name: "AFMLoraProbe",
+      dependencies: ["JuncoKit"],
+      path: "Sources/AFMLoraProbe"
     ),
     .testTarget(
       name: "JuncoTests",
