@@ -66,6 +66,10 @@ junco> /metrics
 junco> /undo
 ```
 
+### Custom Adapters
+
+Junco uses a [custom LoRA adapter](https://developer.apple.com/documentation/foundationmodels/loading-and-using-a-custom-adapter-with-foundation-models) trained on [~10k data samples](https://github.com/LastByteLLC/junco/releases/tag/v0.6.3), including a mix of permissively-licensed code samples and synthetic data. However, based on [Apple Forum #823001](https://developer.apple.com/forums/thread/823001), this may be unsafe on macOS 26.3.1 or earlier because of unevicted writes to `/private/var/db/AppleIntelligencePlatform/AppModelAssets/` by the system `TGOnDeviceInferenceProviderService`. This is a macOS bug and until it's addressed, the best way to clear this space is through [Recovery Mode](https://support.apple.com/en-us/102518).
+
 ### Commands
 
 | Command | Description |
