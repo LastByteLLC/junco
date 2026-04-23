@@ -201,6 +201,20 @@ extension LLMGenerationOptions {
     var opts = FoundationModels.GenerationOptions()
     if let maximumResponseTokens { opts.maximumResponseTokens = maximumResponseTokens }
     if let temperature { opts.temperature = temperature }
+    if let sampling {
+      switch sampling {
+      case .greedy:
+        opts.sampling = .greedy
+      case .random(let topK, let topP, let seed):
+        // topK wins if both are set — AFM accepts either top-K or probability threshold, not both.
+        if let topK {
+          opts.sampling = .random(top: topK, seed: seed)
+        } else if let topP {
+          opts.sampling = .random(probabilityThreshold: topP, seed: seed)
+        }
+        // Both nil: leave sampling unset → AFM default (implicit temperature-based sampling).
+      }
+    }
     return opts
   }
 }

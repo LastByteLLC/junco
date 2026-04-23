@@ -426,7 +426,8 @@ public struct TaskResolver: Sendable {
       """
 
     let plan = try await adapter.generateStructured(
-      prompt: prompt, system: system, as: TaskPlan.self
+      prompt: prompt, system: system, as: TaskPlan.self,
+      options: GenerationProfile.planning().options()
     )
 
     // Convert TaskDescriptions to ConcreteTasks with rich specifications
@@ -525,7 +526,7 @@ public struct TaskResolver: Sendable {
         prompt: query,
         system: "Extract the singular domain noun from this request. Examples: 'fetch podcasts' → podcast, 'track expenses' → expense, 'show weather' → weather.",
         as: DomainExtraction.self,
-        options: LLMGenerationOptions(maximumResponseTokens: 50)
+        options: GenerationProfile.classifier(maxTokens: 50).options()
       ) {
         let cleaned = domain.domain.lowercased()
           .trimmingCharacters(in: .whitespacesAndNewlines)

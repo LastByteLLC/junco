@@ -27,11 +27,22 @@ public actor OllamaAdapter: LLMAdapter {
   // MARK: - Plain text generation
 
   public func generate(prompt: String, system: String?) async throws -> String {
-    let body = OllamaChatRequest(
+    try await generate(prompt: prompt, system: system, options: nil)
+  }
+
+  /// Plain text generation honoring `LLMGenerationOptions`. Mirrors the structured
+  /// path so temperature / sampling / maximumResponseTokens take effect here too.
+  public func generate(
+    prompt: String,
+    system: String?,
+    options: LLMGenerationOptions?
+  ) async throws -> String {
+    var body = OllamaChatRequest(
       model: modelName,
       messages: buildMessages(prompt: prompt, system: system),
       stream: false
     )
+    body.options = Self.ollamaOptions(from: options)
     let response: OllamaChatResponse = try await post(path: "/api/chat", body: body)
     return response.message.content
   }
@@ -61,13 +72,7 @@ public actor OllamaAdapter: LLMAdapter {
       stream: false,
       grammar: grammar
     )
-    if let maxTokens = options?.maximumResponseTokens {
-      body.options = OllamaOptions(numPredict: maxTokens)
-    }
-    if let temp = options?.temperature {
-      if body.options == nil { body.options = OllamaOptions() }
-      body.options?.temperature = temp
-    }
+    body.options = Self.ollamaOptions(from: options)
 
     let response: OllamaGenerateResponse = try await post(path: "/api/generate", body: body)
     return response.response
@@ -135,13 +140,7 @@ public actor OllamaAdapter: LLMAdapter {
       stream: false,
       formatSchema: schemaForFormat
     )
-    if let maxTokens = options?.maximumResponseTokens {
-      body.options = OllamaOptions(numPredict: maxTokens)
-    }
-    if let temp = options?.temperature {
-      if body.options == nil { body.options = OllamaOptions() }
-      body.options?.temperature = temp
-    }
+    body.options = Self.ollamaOptions(from: options)
 
     let response: OllamaChatResponse = try await post(path: "/api/chat", body: body)
     let jsonText = response.message.content.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -208,6 +207,35 @@ public actor OllamaAdapter: LLMAdapter {
     }
     messages.append(OllamaMessage(role: "user", content: prompt))
     return messages
+  }
+
+  /// Translate cross-backend `LLMGenerationOptions` into Ollama's request `options`.
+  /// Returns nil when every field is absent so we don't add a noisy `options: {}` to the body.
+  static func ollamaOptions(from options: LLMGenerationOptions?) -> OllamaOptions? {
+    guard let options else { return nil }
+    var out = OllamaOptions()
+    var touched = false
+
+    if let maxTokens = options.maximumResponseTokens {
+      out.numPredict = maxTokens
+      touched = true
+    }
+    if let temperature = options.temperature {
+      out.temperature = temperature
+      touched = true
+    }
+    if let sampling = options.sampling {
+      switch sampling {
+      case .greedy:
+        // Ollama's effective greedy: temperature=0 (unless caller set a non-zero temperature explicitly).
+        if out.temperature == nil { out.temperature = 0 }
+        touched = true
+      case .random(let topK, let topP, _):
+        if let topK { out.topK = topK; touched = true }
+        if let topP { out.topP = topP; touched = true }
+      }
+    }
+    return touched ? out : nil
   }
 
   // MARK: - Schema → Example JSON
@@ -364,13 +392,17 @@ private struct OllamaMessage: Codable {
   let content: String
 }
 
-private struct OllamaOptions: Encodable {
+struct OllamaOptions: Encodable {
   var numPredict: Int?
   var temperature: Double?
+  var topK: Int?
+  var topP: Double?
 
   enum CodingKeys: String, CodingKey {
     case numPredict = "num_predict"
     case temperature
+    case topK = "top_k"
+    case topP = "top_p"
   }
 }
 

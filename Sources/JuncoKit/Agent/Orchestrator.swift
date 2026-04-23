@@ -817,7 +817,8 @@ public actor Orchestrator {
       if let expanded = try? await adapter.generateStructured(
         prompt: Prompts.searchQueryPrompt(query: query, fileHints: fileList),
         system: Prompts.searchQuerySystem,
-        as: SearchQueries.self
+        as: SearchQueries.self,
+        options: GenerationProfile.queryExpansion().options()
       ) {
         debug("SEARCH LLM terms: \(expanded.queries)")
         for term in expanded.queries.prefix(5) {
@@ -1050,7 +1051,8 @@ public actor Orchestrator {
     )
     memory.trackCall(estimatedTokens: 1200)
     let structuredPlan = try await adapter.generateStructured(
-      prompt: planPrompt, system: Prompts.planModeSystem, as: StructuredPlan.self
+      prompt: planPrompt, system: Prompts.planModeSystem, as: StructuredPlan.self,
+      options: GenerationProfile.planning().options()
     )
 
     // Step 3: Format as readable output
@@ -1105,7 +1107,8 @@ public actor Orchestrator {
     let researchQueries = try await adapter.generateStructured(
       prompt: Prompts.researchQueryPrompt(query: query),
       system: Prompts.researchQuerySystem,
-      as: ResearchQueries.self
+      as: ResearchQueries.self,
+      options: GenerationProfile.queryExpansion().options()
     )
     debug("RESEARCH queries: \(researchQueries.webSearches) | urls: \(researchQueries.urls)")
 
@@ -1152,7 +1155,8 @@ public actor Orchestrator {
         context: TokenBudget.truncate(researchContext, toTokens: 600)
       ),
       system: Prompts.researchSynthesizeSystem,
-      as: AgentResponse.self
+      as: AgentResponse.self,
+      options: GenerationProfile.synthesis(maxTokens: 800).options()
     )
 
     // Step 4: Store in scratchpad for future Build Mode reference
@@ -1344,7 +1348,8 @@ public actor Orchestrator {
       let result = try await adapter.generateStructured(
         prompt: query,
         system: Prompts.modeClassifySystem,
-        as: ModeClassification.self
+        as: ModeClassification.self,
+        options: GenerationProfile.classifier(maxTokens: 50).options()
       )
       return AgentMode(rawValue: result.mode.lowercased()) ?? .build
     } catch {
@@ -1450,7 +1455,8 @@ public actor Orchestrator {
     )
     memory.trackCall(estimatedTokens: TokenBudget.classify.total)
     var intent = try await adapter.generateStructured(
-      prompt: prompt, system: Prompts.classifySystem, as: AgentIntent.self
+      prompt: prompt, system: Prompts.classifySystem, as: AgentIntent.self,
+      options: GenerationProfile.classifier(maxTokens: 300).options()
     )
 
     // Post-classification guards for LLM fallback — same answer-mode-verb exemption.
@@ -1496,7 +1502,8 @@ public actor Orchestrator {
     )
     memory.trackCall(estimatedTokens: TokenBudget.plan.total)
     return try await adapter.generateStructured(
-      prompt: prompt, system: Prompts.planSystem, as: AgentPlan.self
+      prompt: prompt, system: Prompts.planSystem, as: AgentPlan.self,
+      options: GenerationProfile.planning().options()
     )
   }
 
@@ -1803,7 +1810,7 @@ public actor Orchestrator {
             prompt: minimalPrompt,
             system: "Generate the file content only. Be very concise.",
             as: CreateParams.self,
-            options: LLMGenerationOptions(maximumResponseTokens: 2000)
+            options: GenerationProfile.codeGen(maxTokens: 2000).options()
           )
           let retryPath = step.target.isEmpty ? retry.filePath : step.target
           let fallbackAction = ToolAction.create(path: retryPath, content: retry.content)
@@ -1836,12 +1843,15 @@ public actor Orchestrator {
     let base = "Step: \(step.instruction)\nTarget: \(step.target)\nProject root: \(workingDirectory)"
     memory.trackCall(estimatedTokens: 600)
 
+    let toolArgsOptions = GenerationProfile.toolArgs().options()
+
     switch tool {
     case .bash:
       let p = try await adapter.generateStructured(
         prompt: base,
         system: "Generate a bash command. Working directory: \(workingDirectory). Use relative paths.",
-        as: BashParams.self
+        as: BashParams.self,
+        options: toolArgsOptions
       )
       return .bash(command: p.command)
 
@@ -1850,7 +1860,8 @@ public actor Orchestrator {
         return .read(path: step.target)
       }
       let p = try await adapter.generateStructured(
-        prompt: base, system: "Specify the file path to read.", as: ReadParams.self
+        prompt: base, system: "Specify the file path to read.", as: ReadParams.self,
+        options: toolArgsOptions
       )
       return .read(path: p.filePath)
 
@@ -1911,7 +1922,8 @@ public actor Orchestrator {
       let p = try await adapter.generateStructured(
         prompt: "\(base)\nUser request: \(TokenBudget.truncate(memory.query, toTokens: 150))\(writeURLHint)\n\nExisting:\n\(codeContext)",
         system: "Generate file path and complete content to write. Follow the user's request precisely.",
-        as: WriteParams.self
+        as: WriteParams.self,
+        options: toolArgsOptions
       )
       let writePath = step.target.isEmpty ? p.filePath : step.target
       return .write(path: writePath, content: p.content)
@@ -1937,7 +1949,7 @@ public actor Orchestrator {
         prompt: editPrompt,
         system: editSystem,
         as: EditParams.self,
-        options: LLMGenerationOptions(maximumResponseTokens: editMaxOutput)
+        options: GenerationProfile.toolArgs(maxTokens: editMaxOutput).options()
       )
       let editPath = step.target.isEmpty ? p.filePath : step.target
       return .edit(path: editPath, find: p.find, replace: p.replace)
@@ -1946,13 +1958,15 @@ public actor Orchestrator {
       let p = try await adapter.generateStructured(
         prompt: "\(base)\n\nFile content:\n\(codeContext)",
         system: "Generate a unified diff patch for this file. Use +/- line prefixes and @@ hunk headers.",
-        as: PatchParams.self
+        as: PatchParams.self,
+        options: toolArgsOptions
       )
       return .patch(path: p.filePath, diff: p.patch)
 
     case .search:
       let p = try await adapter.generateStructured(
-        prompt: base, system: "Specify a grep pattern.", as: SearchParams.self
+        prompt: base, system: "Specify a grep pattern.", as: SearchParams.self,
+        options: toolArgsOptions
       )
       return .search(pattern: p.pattern)
 
@@ -1980,7 +1994,8 @@ public actor Orchestrator {
     let skeleton = try await adapter.generateStructured(
       prompt: "Create the structure for: \(TokenBudget.truncate(step.instruction, toTokens: 200))\nUser request: \(query)\(urlHint)",
       system: "Generate the file skeleton: imports, type declaration, properties, and method signatures WITHOUT bodies. Include ALL methods the user needs — do not return empty methodSignatures.",
-      as: CodeSkeleton.self
+      as: CodeSkeleton.self,
+      options: GenerationProfile.codeGen(maxTokens: 800).options()
     )
 
     // Assemble skeleton
@@ -2005,7 +2020,8 @@ public actor Orchestrator {
       let body = try await adapter.generateStructured(
         prompt: "\(shortSig)\nContext: \(fillContext)",
         system: "Implement this Swift method. Return only the method with body. Be concise.",
-        as: MethodBody.self
+        as: MethodBody.self,
+        options: GenerationProfile.codeGen(maxTokens: 400).options()
       )
       // Apply TreeSitterRepair to each individual fill before assembly
       var impl = body.implementation.trimmingCharacters(in: .whitespaces)
@@ -2190,7 +2206,8 @@ public actor Orchestrator {
         let fixed = try await adapter.generateStructured(
           prompt: "Fix this code.\nTask: \(taskHint)\nError: \(String(error.prefix(200)))\n\nCode:\n\(region.text)",
           system: "Fix ONLY this code region. Return the corrected code.",
-          as: CodeFragment.self
+          as: CodeFragment.self,
+          options: GenerationProfile.codeGen(maxTokens: 500).options()
         )
         content = errorExtractor.splice(original: content, region: region, fix: fixed.content)
       } else {
@@ -2200,7 +2217,8 @@ public actor Orchestrator {
         let fixed = try await adapter.generateStructured(
           prompt: "Fix this code.\nTask: \(taskHint)\nError: \(String(error.prefix(200)))\n\nCode:\n\(truncatedCode)",
           system: "Fix the error. Return the complete corrected file.",
-          as: CreateParams.self
+          as: CreateParams.self,
+          options: GenerationProfile.codeGen(maxTokens: 1200).options()
         )
         content = fixed.content
       }
@@ -2259,7 +2277,8 @@ public actor Orchestrator {
           let fixed = try await adapter.generateStructured(
             prompt: "Fix this code.\nError: \(error.message)\n\nCode:\n\(region.text)",
             system: "Fix ONLY this code region. Return the corrected code.",
-            as: CodeFragment.self
+            as: CodeFragment.self,
+            options: GenerationProfile.codeGen(maxTokens: 500).options()
           )
 
           let newContent = errorExtractor.splice(original: fileContent, region: region, fix: fixed.content)

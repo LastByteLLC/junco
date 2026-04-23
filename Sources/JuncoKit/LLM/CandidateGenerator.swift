@@ -64,12 +64,14 @@ public struct CandidateGenerator: Sendable {
     filePath: String,
     extract: @Sendable (T) -> String
   ) async throws -> (value: T, result: CandidateResult) {
-    // Generate candidates sequentially (on-device model is single-threaded)
+    // Generate candidates sequentially (on-device model is single-threaded).
+    // Slot 0 is greedy (deterministic floor); slot 1+ uses random + the configured
+    // temperature, giving the caller a reproducible candidate plus diversified alternates.
     var candidates: [(T, CandidateResult)] = []
     var lastError: (any Error)?
 
-    for _ in 0..<candidateCount {
-      let options = LLMGenerationOptions(temperature: temperature)
+    for index in 0..<candidateCount {
+      let options = GenerationProfile.candidate(index: index, temperature: temperature).options()
       do {
         let value = try await adapter.generateStructured(
           prompt: prompt, system: system, as: type, options: options

@@ -188,6 +188,7 @@ struct LLMGenerationOptionsTests {
     let opts = LLMGenerationOptions()
     #expect(opts.maximumResponseTokens == nil)
     #expect(opts.temperature == nil)
+    #expect(opts.sampling == nil)
   }
 
   @Test("options preserve values")
@@ -195,6 +196,77 @@ struct LLMGenerationOptionsTests {
     let opts = LLMGenerationOptions(maximumResponseTokens: 2000, temperature: 0.7)
     #expect(opts.maximumResponseTokens == 2000)
     #expect(opts.temperature == 0.7)
+  }
+
+  @Test("options carry sampling strategy")
+  func carriesSampling() {
+    let opts = LLMGenerationOptions(sampling: .random(topK: 40, topP: 0.9, seed: 42))
+    guard case .random(let k, let p, let s) = opts.sampling else {
+      Issue.record("Expected .random sampling")
+      return
+    }
+    #expect(k == 40)
+    #expect(p == 0.9)
+    #expect(s == 42)
+  }
+}
+
+@Suite("OllamaOptions bridging")
+struct OllamaOptionsBridgingTests {
+
+  @Test("nil options produce nil bridge result")
+  func nilInput() {
+    #expect(OllamaAdapter.ollamaOptions(from: nil) == nil)
+  }
+
+  @Test("empty options produce nil bridge result")
+  func emptyInput() {
+    #expect(OllamaAdapter.ollamaOptions(from: LLMGenerationOptions()) == nil)
+  }
+
+  @Test("maxTokens maps to num_predict via encoded JSON")
+  func maxTokensEncodes() throws {
+    let opts = OllamaAdapter.ollamaOptions(from: LLMGenerationOptions(maximumResponseTokens: 1500))
+    let data = try JSONEncoder().encode(opts)
+    let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    #expect(json["num_predict"] as? Int == 1500)
+  }
+
+  @Test("temperature maps through")
+  func temperatureEncodes() throws {
+    let opts = OllamaAdapter.ollamaOptions(from: LLMGenerationOptions(temperature: 0.3))
+    let data = try JSONEncoder().encode(opts)
+    let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    #expect(json["temperature"] as? Double == 0.3)
+  }
+
+  @Test("greedy sampling forces temperature=0 when caller left it unset")
+  func greedyForcesZero() throws {
+    let opts = OllamaAdapter.ollamaOptions(from: LLMGenerationOptions(sampling: .greedy))
+    let data = try JSONEncoder().encode(opts)
+    let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    #expect(json["temperature"] as? Double == 0.0)
+  }
+
+  @Test("greedy sampling preserves explicit non-zero temperature")
+  func greedyRespectsExplicit() throws {
+    let opts = OllamaAdapter.ollamaOptions(
+      from: LLMGenerationOptions(temperature: 0.5, sampling: .greedy)
+    )
+    let data = try JSONEncoder().encode(opts)
+    let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    #expect(json["temperature"] as? Double == 0.5)
+  }
+
+  @Test("random sampling encodes top_k and top_p")
+  func randomEncodesTopKTopP() throws {
+    let opts = OllamaAdapter.ollamaOptions(
+      from: LLMGenerationOptions(sampling: .random(topK: 40, topP: 0.9))
+    )
+    let data = try JSONEncoder().encode(opts)
+    let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    #expect(json["top_k"] as? Int == 40)
+    #expect(json["top_p"] as? Double == 0.9)
   }
 }
 

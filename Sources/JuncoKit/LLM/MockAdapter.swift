@@ -11,10 +11,14 @@ public actor MockAdapter: LLMAdapter {
 
   private let responder: Responder
   private var _history: [(prompt: String, system: String?)] = []
+  private var _optionsHistory: [LLMGenerationOptions?] = []
 
   public var history: [(prompt: String, system: String?)] {
     _history
   }
+
+  /// Options seen on each structured-generation call. Indexed by `_history` position.
+  public var optionsHistory: [LLMGenerationOptions?] { _optionsHistory }
 
   public var callCount: Int { _history.count }
 
@@ -43,6 +47,7 @@ public actor MockAdapter: LLMAdapter {
 
   public func generate(prompt: String, system: String?) async throws -> String {
     _history.append((prompt: prompt, system: system))
+    _optionsHistory.append(nil)
     return responder(prompt, system)
   }
 
@@ -62,7 +67,9 @@ public actor MockAdapter: LLMAdapter {
     as type: T.Type,
     options: LLMGenerationOptions? = nil
   ) async throws -> T {
-    let text = try await generate(prompt: prompt, system: system)
+    _history.append((prompt: prompt, system: system))
+    _optionsHistory.append(options)
+    let text = responder(prompt, system)
     // All @Generable types are also Codable — decode from JSON
     guard text.data(using: .utf8) != nil else {
       throw LLMError.generationFailed("Mock: invalid UTF-8 response")

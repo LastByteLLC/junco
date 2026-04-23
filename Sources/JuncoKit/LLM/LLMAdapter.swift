@@ -1,15 +1,35 @@
 // LLMAdapter.swift — Protocol for language model backends
 
+/// Cross-backend decoding strategy. AFM bridges to `GenerationOptions.SamplingMode`;
+/// Ollama bridges to `temperature`/`top_k`/`top_p` on its `options` object.
+public enum SamplingStrategy: Sendable, Equatable {
+  /// Always take the highest-probability token. Fully deterministic given the same input.
+  case greedy
+  /// Sample from a restricted distribution. Leave all fields nil for the backend default.
+  /// - topK: keep the top-K tokens by probability.
+  /// - topP: keep the smallest set whose cumulative probability exceeds P (nucleus).
+  /// - seed: reproducible randomness when supported by the backend.
+  case random(topK: Int? = nil, topP: Double? = nil, seed: UInt64? = nil)
+}
+
 /// Options that control how the model generates its response.
 public struct LLMGenerationOptions: Sendable {
   public var maximumResponseTokens: Int?
   public var temperature: Double?
+  /// Decoding strategy. Takes precedence over `temperature` alone when bridged to AFM.
+  public var sampling: SamplingStrategy?
   /// GBNF grammar string for constrained decoding (Ollama only, ignored by AFM).
   public var grammar: String?
 
-  public init(maximumResponseTokens: Int? = nil, temperature: Double? = nil, grammar: String? = nil) {
+  public init(
+    maximumResponseTokens: Int? = nil,
+    temperature: Double? = nil,
+    sampling: SamplingStrategy? = nil,
+    grammar: String? = nil
+  ) {
     self.maximumResponseTokens = maximumResponseTokens
     self.temperature = temperature
+    self.sampling = sampling
     self.grammar = grammar
   }
 }

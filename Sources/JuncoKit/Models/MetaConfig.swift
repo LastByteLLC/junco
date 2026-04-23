@@ -61,6 +61,42 @@ public struct MetaConfig: Sendable, Codable {
     }
   }
 
+  // GenerationProfile overrides — runtime tuning of per-stage `LLMGenerationOptions`.
+  public var defaultMaximumResponseTokens: Int?
+  public var defaultTemperature: Double?
+  public var profileOverrides: [String: ProfileOverride]?
+
+  public struct ProfileOverride: Sendable, Codable {
+    public var maxTokens: Int?
+    public var temperature: Double?
+    /// "greedy", "random", or nil to keep the profile's native sampling.
+    public var samplingStrategy: String?
+    public var topK: Int?
+    public var topP: Double?
+    public var seed: UInt64?
+
+    public init(
+      maxTokens: Int? = nil, temperature: Double? = nil,
+      samplingStrategy: String? = nil, topK: Int? = nil, topP: Double? = nil, seed: UInt64? = nil
+    ) {
+      self.maxTokens = maxTokens
+      self.temperature = temperature
+      self.samplingStrategy = samplingStrategy
+      self.topK = topK
+      self.topP = topP
+      self.seed = seed
+    }
+
+    /// Decode the override's sampling fields into a `SamplingStrategy`, if set.
+    public func sampling() -> SamplingStrategy? {
+      switch samplingStrategy?.lowercased() {
+      case "greedy": return .greedy
+      case "random": return .random(topK: topK, topP: topP, seed: seed)
+      default: return nil
+      }
+    }
+  }
+
   public init() {}
 
   /// Shared overlay — loaded once from $META_CONFIG_JSON at process start.
@@ -107,6 +143,8 @@ public struct MetaConfig: Sendable, Codable {
     if let v = copy.mlClassifierConfidence, v < 0 || v > 1 { copy.mlClassifierConfidence = nil }
     if let v = copy.languageDetectionConfidence, v < 0 || v > 1 { copy.languageDetectionConfidence = nil }
     if let v = copy.skillHintBudget, v < 0 || v > 5_000 { copy.skillHintBudget = nil }
+    if let v = copy.defaultMaximumResponseTokens, v < 1 || v > 100_000 { copy.defaultMaximumResponseTokens = nil }
+    if let v = copy.defaultTemperature, v < 0 || v > 2 { copy.defaultTemperature = nil }
     return copy
   }
 }

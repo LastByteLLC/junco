@@ -205,6 +205,52 @@ struct CandidateGeneratorTests {
     // The well-formed candidate should compile (it uses only Foundation APIs)
     // Note: may not compile in CI without full SDK, but validates the flow
   }
+
+  @Test("CandidateGenerator slot 0 runs greedy, slot 1+ runs random")
+  func candidatesVarySampling() async throws {
+    let goodCode = """
+    {"filePath":"x.swift","content":"let x = 42"}
+    """
+    let mock = MockAdapter(fixedResponse: goodCode)
+    let shell = SafeShell(workingDirectory: NSTemporaryDirectory())
+    // 3 candidates, but the first compiles so later slots won't be exercised.
+    // Force exercise by providing code that never compiles.
+    let badCode = """
+    {"filePath":"x.swift","content":"let x: = 1"}
+    """
+    let mockBad = MockAdapter(fixedResponse: badCode)
+    let gen = CandidateGenerator(adapter: mockBad, shell: shell, candidateCount: 3, temperature: 0.9)
+
+    _ = try await gen.generate(
+      prompt: "p", system: "s", as: CreateParams.self, filePath: "x.swift",
+      extract: { $0.content }
+    )
+
+    let optionsSeen = await mockBad.optionsHistory
+    #expect(optionsSeen.count == 3, "Expected 3 candidate calls, got \(optionsSeen.count)")
+
+    // Slot 0: greedy, no temperature
+    if let slot0 = optionsSeen[0] {
+      #expect(slot0.sampling == .greedy)
+      #expect(slot0.temperature == nil)
+    } else {
+      Issue.record("Slot 0 options were nil")
+    }
+
+    // Slot 1+: random sampling, explicit temperature
+    if let slot1 = optionsSeen[1] {
+      #expect(slot1.temperature == 0.9)
+      if case .random = slot1.sampling {
+        // expected
+      } else {
+        Issue.record("Slot 1 expected .random, got \(String(describing: slot1.sampling))")
+      }
+    } else {
+      Issue.record("Slot 1 options were nil")
+    }
+
+    _ = mock  // silence "never used" — kept for reference
+  }
 }
 
 @Suite("CandidateGenerator + SignatureIndex")
