@@ -45,7 +45,7 @@ public protocol LLMAdapter: Sendable {
   /// Human-readable backend name for UI display (e.g., "Apple Foundation Models", "Ollama (qwen2.5-coder)").
   var backendName: String { get }
 
-  /// Whether this adapter uses Apple Foundation Models (enables LoRA, prewarm, etc.).
+  /// Whether this adapter uses Apple Foundation Models (enables prewarm, etc.).
   var isAFM: Bool { get }
 }
 

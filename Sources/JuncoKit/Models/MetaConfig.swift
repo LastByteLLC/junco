@@ -9,6 +9,10 @@ import Foundation
 /// Runtime overlay of tunable constants. All fields are optional — nil means "use default".
 public struct MetaConfig: Sendable, Codable {
   // Token / context
+  /// Optional runtime override for LLMAdapter.contextSize. When set and in-range, the
+  /// active adapter returns this value instead of the model's reported context size.
+  /// Primarily useful for squeezing the harness under a smaller effective window to
+  /// surface compaction-layer bugs.
   public var contextWindow: Int?
   public var charsPerToken: Int?
   public var toolOutputMaxTokens: Int?

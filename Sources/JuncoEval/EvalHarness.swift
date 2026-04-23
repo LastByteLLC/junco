@@ -735,36 +735,6 @@ struct EvalHarness {
     splitFilter: EvalSplit? = nil
   ) async -> String {
     let adapter = AFMAdapter()
-    // LoRA gated off by default during meta-harness build.
-    // Reason: APFS metadata leak (~100MB/call, Apple forum 823001). Plan: ultrathink-read-the-meta-harness-functional-wigderson.md.
-    // To re-enable: set env var JUNCO_LORA_ENABLED=1 before launching.
-    let loraEnabled = ProcessInfo.processInfo.environment["JUNCO_LORA_ENABLED"] == "1"
-    if loraEnabled {
-      let adapterPaths = [
-        URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".junco/models/junco_coding_v4.fmadapter"),
-        URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".junco/models/junco_coding.fmadapter"),
-        URL(fileURLWithPath: "Training/lora/export/junco_coding.fmadapter")
-      ]
-      for path in adapterPaths {
-        if FileManager.default.fileExists(atPath: path.appendingPathComponent("adapter_weights.bin").path) {
-          await adapter.loadAdapter(from: path)
-          if await adapter.hasAdapter {
-            print("LoRA adapter loaded: \(path.lastPathComponent)")
-            break
-          }
-        }
-      }
-      if await !adapter.hasAdapter {
-        await adapter.loadAdapter()  // Try registered name fallback
-        if await adapter.hasAdapter {
-          print("LoRA adapter loaded (registered name)")
-        } else {
-          print("⚠ No LoRA adapter — running with base model")
-        }
-      }
-    } else {
-      print("⚠ LoRA disabled (meta-harness build) — running with base model")
-    }
 
     var cases = Self.nonDestructiveCases
     if includeDestructive {

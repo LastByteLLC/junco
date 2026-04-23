@@ -111,8 +111,23 @@ struct EvalInvocation {
 
   func run() -> Int32 {
     let proc = Process()
-    proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-    var args = ["swift", "run", "-q", "junco-eval", "--eval", "--split", split, "--report", reportPath]
+    // Use the current session's debug binary directly to avoid a SwiftPM build-planning pass
+    // per invocation (which also contends for `.build/` locks with any concurrent `swift run`).
+    // DO NOT prefer release — a stale release binary from a prior session can silently run old
+    // code against current sources (e.g., a LoRA-era binary against a LoRA-free tree).
+    // If the debug binary is missing, fall back to `swift run -q` which forces a build.
+    let fm = FileManager.default
+    let cwd = fm.currentDirectoryPath
+    let debugBin = "\(cwd)/.build/arm64-apple-macosx/debug/junco-eval"
+    if fm.fileExists(atPath: debugBin) {
+      proc.executableURL = URL(fileURLWithPath: debugBin)
+    } else {
+      proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    }
+    let usingSwiftRun = proc.executableURL?.path == "/usr/bin/env"
+    var args = usingSwiftRun
+      ? ["swift", "run", "-q", "junco-eval", "--eval", "--split", split, "--report", reportPath]
+      : ["--eval", "--split", split, "--report", reportPath]
     if let cf = caseFilter { args += ["--case", cf] }
     proc.arguments = args
 
@@ -121,7 +136,7 @@ struct EvalInvocation {
     if let p = promptOverridesPath { env["PROMPT_OVERRIDES_JSON"] = p }
     env["JUNCO_SUMMARY_JSON"] = summaryPath
     if let d = traceDir { env["JUNCO_TRACE_DIR"] = d }
-    env["JUNCO_LORA_ENABLED"] = env["JUNCO_LORA_ENABLED"] ?? "0"  // disabled unless explicitly opt-in
+    // LoRA has been removed from the codebase; no env gate needed.
     proc.environment = env
 
     let killer = DispatchWorkItem { [proc] in
@@ -205,13 +220,27 @@ func runCanary() -> Int32 {
   return 0
 }
 
-func runEval(candidateId: String, replicates: Int = 1, caseFilter: String? = nil) -> Int32 {
+func runEval(candidateId: String, replicates: Int = 1, caseFilter: String? = nil, skipCanary: Bool = false) -> Int32 {
   let metaPath = MetaFS.metaPath(candidateId)
   guard let candidate = readJSON(CandidateMeta.self, path: metaPath) else {
     FileHandle.standardError.write(Data("[junco-meta] No meta.json at \(metaPath)\n".utf8))
     return 4
   }
   MetaFS.ensure(MetaFS.candidateDir(candidateId))
+
+  // Auto-gate: canary must pass on the main repo before committing to a full eval.
+  // Protects against harness regressions that would invalidate ALL candidate results.
+  // (swift-code candidates run canary inside the worktree, not here — a broken worktree
+  // fails the build gate first.)
+  if !skipCanary && candidate.mutationClass != "swift-code" {
+    print("[junco-meta] Pre-eval canary …")
+    let canaryRC = runCanary()
+    guard canaryRC == 0 else {
+      FileHandle.standardError.write(Data(
+        "[junco-meta] Canary failed — aborting eval. Re-run with --skip-canary to bypass.\n".utf8))
+      return canaryRC
+    }
+  }
 
   if candidate.mutationClass == "swift-code" {
     return runSwiftCodeEval(candidate: candidate, replicates: replicates, caseFilter: caseFilter)
@@ -377,6 +406,12 @@ func runSwiftCodeEval(candidate: CandidateMeta, replicates: Int, caseFilter: Str
   let metaCfgPath = extractTempFile(candidate.metaConfig, prefix: "metacfg")
   let promptOverPath = extractTempFile(candidate.promptOverrides, prefix: "prompts")
 
+  // Use the worktree's debug binary (built by the gate above). Never prefer release here
+  // either — a stale release binary from a prior run of this same candidate id would shadow
+  // the just-built code. If missing, fall back to swift-run.
+  let fmInner = FileManager.default
+  let wtDebug = "\(worktreePath)/.build/arm64-apple-macosx/debug/junco-eval"
+
   print("[junco-meta] Running eval(s) in worktree …")
   var lastRC: Int32 = 0
   for n in 1...replicates {
@@ -386,10 +421,17 @@ func runSwiftCodeEval(candidate: CandidateMeta, replicates: Int, caseFilter: Str
     MetaFS.ensure(traceDir)
 
     print("\n[junco-meta] --- run \(n) of \(replicates) (in worktree) ---")
-    var args = ["swift", "run", "-q", "junco-eval", "--eval", "--split", "search", "--report", reportPath]
-    if let cf = caseFilter { args += ["--case", cf] }
     let proc = Process()
-    proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    if fmInner.fileExists(atPath: wtDebug) {
+      proc.executableURL = URL(fileURLWithPath: wtDebug)
+    } else {
+      proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    }
+    let usingSwiftRun = proc.executableURL?.path == "/usr/bin/env"
+    var args = usingSwiftRun
+      ? ["swift", "run", "-q", "junco-eval", "--eval", "--split", "search", "--report", reportPath]
+      : ["--eval", "--split", "search", "--report", reportPath]
+    if let cf = caseFilter { args += ["--case", cf] }
     proc.arguments = args
     proc.currentDirectoryURL = URL(fileURLWithPath: worktreePath)
     var env = ProcessInfo.processInfo.environment
@@ -397,7 +439,6 @@ func runSwiftCodeEval(candidate: CandidateMeta, replicates: Int, caseFilter: Str
     if let p = promptOverPath { env["PROMPT_OVERRIDES_JSON"] = p }
     env["JUNCO_SUMMARY_JSON"] = summaryPath
     env["JUNCO_TRACE_DIR"] = traceDir
-    env["JUNCO_LORA_ENABLED"] = env["JUNCO_LORA_ENABLED"] ?? "0"
     proc.environment = env
 
     // 15-min timeout per run
@@ -676,13 +717,26 @@ func loadEvaluatedCandidates() -> [(id: String, summary: Summary)] {
   return out
 }
 
-/// 2-axis Pareto dominance on (successRate ↑, medianDurationSec ↓).
-/// Returns true iff A is weakly better on both axes and strictly better on at least one.
+/// 4-axis Pareto dominance on primary metrics.
+/// Axes: successRate ↑, medianDurationSec ↓, totalLlmCalls ↓, totalTokens ↓.
+/// A dominates B iff A is weakly better on all four AND strictly better on at least one.
+/// Captures both quality (success) and efficiency (latency, calls, tokens) — otherwise
+/// candidates that cut LLM calls at identical success rates (e.g., soft-classify-guard,
+/// which trades 1 extra call for a 30-call CVF loop via the deterministic tier) are
+/// wrongly marked dominated by a faster-median baseline.
 func dominates(_ a: Summary, _ b: Summary) -> Bool {
-  let aRate = a.successRate, bRate = b.successRate
-  let aMed = a.medianDurationSec, bMed = b.medianDurationSec
-  let betterOrEq = aRate >= bRate && aMed <= bMed
-  let strictlyBetter = aRate > bRate || aMed < bMed
+  let aCalls = Double(a.totalLlmCalls), bCalls = Double(b.totalLlmCalls)
+  let aToks = Double(a.totalTokens), bToks = Double(b.totalTokens)
+  let betterOrEq =
+    a.successRate >= b.successRate
+    && a.medianDurationSec <= b.medianDurationSec
+    && aCalls <= bCalls
+    && aToks <= bToks
+  let strictlyBetter =
+    a.successRate > b.successRate
+    || a.medianDurationSec < b.medianDurationSec
+    || aCalls < bCalls
+    || aToks < bToks
   return betterOrEq && strictlyBetter
 }
 
@@ -727,7 +781,10 @@ func runFrontier() -> Int32 {
     let axes: [String]
   }
   let iso = ISO8601DateFormatter().string(from: Date())
-  let ff = FrontierFile(computedAt: iso, ids: frontier.sorted(), axes: ["successRate", "medianDurationSec"])
+  let ff = FrontierFile(
+    computedAt: iso, ids: frontier.sorted(),
+    axes: ["successRate", "medianDurationSec", "totalLlmCalls", "totalTokens"]
+  )
   try? writeJSON(ff, path: MetaFS.frontierPath)
   return 0
 }
@@ -952,8 +1009,10 @@ guard args.count >= 2 else {
 
   Subcommands:
     canary                    Run the canary split (fast smoke gate).
-    eval --candidate <id> [--replicates N] [--case <name>]
-                              Evaluate a candidate on the search split.
+    eval --candidate <id> [--replicates N] [--case <name>] [--skip-canary]
+                              Evaluate a candidate on the search split. Auto-runs canary first
+                              unless --skip-canary is passed (swift-code candidates always skip;
+                              their worktree build gates separately).
     list                      List all candidates with status.
     show <id>                 Show a candidate's meta + summary.
     frontier                  Print the current 2-axis Pareto frontier.
@@ -972,6 +1031,7 @@ case "eval":
   var candidate: String?
   var replicates = 1
   var caseFilter: String?
+  var skipCanary = false
   var i = 2
   while i < args.count {
     if args[i] == "--candidate", i + 1 < args.count {
@@ -980,13 +1040,15 @@ case "eval":
       replicates = max(1, Int(args[i + 1]) ?? 1); i += 2
     } else if args[i] == "--case", i + 1 < args.count {
       caseFilter = args[i + 1]; i += 2
+    } else if args[i] == "--skip-canary" {
+      skipCanary = true; i += 1
     } else { i += 1 }
   }
   guard let id = candidate else {
     FileHandle.standardError.write(Data("eval requires --candidate <id>\n".utf8))
     exit(2)
   }
-  exit(runEval(candidateId: id, replicates: replicates, caseFilter: caseFilter))
+  exit(runEval(candidateId: id, replicates: replicates, caseFilter: caseFilter, skipCanary: skipCanary))
 
 case "list":
   exit(runList())

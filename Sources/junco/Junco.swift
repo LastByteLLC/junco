@@ -44,14 +44,8 @@ struct Junco: AsyncParsableCommand {
   @Flag(name: .shortAndLong, help: "Show debug output for every pipeline stage (to stderr)")
   var verbose = false
 
-  @Flag(name: .long, help: "Disable LoRA adapter (use base model only)")
-  var noAdapter = false
-
-  @Flag(name: .long, help: "Disable all networking (no adapter download, no web search)")
+  @Flag(name: .long, help: "Disable network features (no web search)")
   var offline = false
-
-  @Option(name: .long, help: "Path to a custom .fmadapter package (skips auto-download)")
-  var adapter: String?
 
   @Option(name: .long, help: "Model backend (default: auto). Examples: afm, ollama:qwen2.5-coder")
   var model: String?
@@ -93,76 +87,6 @@ struct Junco: AsyncParsableCommand {
     return true
   }
 
-  /// Load LoRA adapter for AFM backend (extracted from old startup flow).
-  private func loadLoRAIfNeeded(afm: AFMAdapter, cwd: String) async {
-    // LoRA gated off by default during meta-harness build.
-    // Reason: APFS metadata leak (~100MB/call, Apple forum 823001) makes repeated eval loads infeasible.
-    // Plan: ~/.claude/plans/ultrathink-read-the-meta-harness-functional-wigderson.md
-    // To re-enable: set env var JUNCO_LORA_ENABLED=1 before launching.
-    guard ProcessInfo.processInfo.environment["JUNCO_LORA_ENABLED"] == "1" else { return }
-    guard !noAdapter else { return }
-
-    if let path = adapter {
-      // User-provided adapter — load directly, no auto-download
-      let url = URL(fileURLWithPath: path)
-      guard FileManager.default.fileExists(atPath: url.appendingPathComponent("adapter_weights.bin").path) else {
-        FileHandle.standardError.write(Data("Error: No valid .fmadapter found at \(path)\n".utf8))
-        return
-      }
-      await afm.loadAdapter(from: url)
-      if verbose {
-        FileHandle.standardError.write(Data("[junco] Custom adapter loaded from \(path)\n".utf8))
-      }
-    } else {
-      // Auto-download from manifest
-      let downloader = AdapterDownloader()
-      let result = await downloader.resolve(
-        offline: offline,
-        askPermission: pipe ? nil : {
-          print("A LoRA adapter is available to improve code generation quality.")
-          print("Download it now? (~127 MB, cached for future use) [y/N] ", terminator: "")
-          return readLine()?.lowercased().hasPrefix("y") ?? false
-        },
-        isPipe: pipe
-      )
-
-      switch result {
-      case .cached(let url):
-        await afm.loadAdapter(from: url)
-        if verbose {
-          FileHandle.standardError.write(Data("[junco] LoRA adapter loaded (cached)\n".utf8))
-        }
-      case .downloaded(let url):
-        print("Adapter downloaded successfully.")
-        await afm.loadAdapter(from: url)
-        if verbose {
-          FileHandle.standardError.write(Data("[junco] LoRA adapter loaded (downloaded)\n".utf8))
-        }
-      case .noRelease:
-        if verbose {
-          FileHandle.standardError.write(Data("[junco] No adapter available for this OS version\n".utf8))
-        }
-      case .declined:
-        break
-      case .failed(let error):
-        FileHandle.standardError.write(Data("[junco] Adapter download failed: \(error)\n".utf8))
-      case .offline:
-        if verbose {
-          FileHandle.standardError.write(Data("[junco] Offline mode — skipping adapter download\n".utf8))
-        }
-      }
-
-      // Fall back to registered adapter name if download didn't work
-      if await !afm.hasAdapter {
-        await afm.loadAdapter()
-      }
-    }
-
-    if await afm.hasAdapter && verbose {
-      FileHandle.standardError.write(Data("[junco] LoRA adapter active\n".utf8))
-    }
-  }
-
   func run() async throws {
     // Resolve project root
     let cwd: String
@@ -198,7 +122,6 @@ struct Junco: AsyncParsableCommand {
       if modelSpec.lowercased() == "afm" {
         if !checkAppleIntelligence() { return }
         let afm = AFMAdapter()
-        await loadLoRAIfNeeded(afm: afm, cwd: cwd)
         resolvedAdapter = afm
         isUsingAFM = true
       } else if modelSpec.lowercased().hasPrefix("ollama") {
@@ -233,7 +156,6 @@ struct Junco: AsyncParsableCommand {
         let afmAvailable = FoundationModels.SystemLanguageModel.default.isAvailable
         if afmAvailable {
           let afm = AFMAdapter()
-          await loadLoRAIfNeeded(afm: afm, cwd: cwd)
           resolvedAdapter = afm
           isUsingAFM = true
         } else {
@@ -261,14 +183,12 @@ struct Junco: AsyncParsableCommand {
             "\u{1B}[33m⚠ Saved preference is Ollama but server is not running. Using AFM.\u{1B}[0m\n".utf8))
           if !checkAppleIntelligence() { return }
           let afm = AFMAdapter()
-          await loadLoRAIfNeeded(afm: afm, cwd: cwd)
           resolvedAdapter = afm
           isUsingAFM = true
         }
       } else {
         // Unknown saved preference — ignore, use default
         let afm = AFMAdapter()
-        await loadLoRAIfNeeded(afm: afm, cwd: cwd)
         resolvedAdapter = afm
         isUsingAFM = true
       }
@@ -277,7 +197,6 @@ struct Junco: AsyncParsableCommand {
       let afmAvailable = FoundationModels.SystemLanguageModel.default.isAvailable
       if afmAvailable {
         let afm = AFMAdapter()
-        await loadLoRAIfNeeded(afm: afm, cwd: cwd)
         resolvedAdapter = afm
         isUsingAFM = true
       } else {
@@ -963,7 +882,6 @@ struct Junco: AsyncParsableCommand {
         return
       }
       let afm = AFMAdapter()
-      await loadLoRAIfNeeded(afm: afm, cwd: cwd)
       orchestrator = Orchestrator(adapter: afm, workingDirectory: cwd)
       if verbose { await orchestrator.setVerbose(true) }
       ModelPreference.save("afm")

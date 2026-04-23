@@ -1265,6 +1265,10 @@ public actor Orchestrator {
     "test": "test",
     "find": "explore", "search": "explore", "grep": "explore",
     "where": "explore", "list": "explore", "show": "explore",
+    // Plan/review verbs → deterministic answer mode. Without these, "Plan a refactor"
+    // hits the LLM classify tier and frequently mis-routes to build. (soft-classify-guard)
+    "plan": "plan", "design": "plan", "outline": "plan",
+    "review": "explain", "audit": "explain",
     // Spanish
     "explica": "explain", "explicar": "explain", "qué": "explain",
     "¿qué": "explain", "cómo": "explain", "¿cómo": "explain",
@@ -1301,6 +1305,15 @@ public actor Orchestrator {
   /// Task types that imply build mode (post-classification guard).
   private static let buildTaskTypes: Set<String> = [
     "add", "fix", "refactor", "test"
+  ]
+
+  /// First words that unambiguously imply answer mode (plan/show/explain questions).
+  /// When the first word is in this set, the `buildTaskTypes` post-classification guard
+  /// is SKIPPED — prevents "Plan a refactor …" from flipping to build.
+  /// Validated by meta-harness candidate `soft-classify-guard`: plan-refactor 0→100%.
+  private static let answerModeFirstWords: Set<String> = [
+    "plan", "show", "explain", "find", "search", "how", "what", "where",
+    "why", "list", "describe", "summarize", "tell", "review"
   ]
 
   /// Classify the agent mode. Tries ML classifier first, falls back to LLM.
@@ -1393,9 +1406,12 @@ public actor Orchestrator {
         debug("Mode classification: \(detectedMode.rawValue)")
       }
 
-      // Post-classification guard: build-type task + answer mode → likely misclassification
+      // Post-classification guard: build-type task + answer mode → likely misclassification,
+      // UNLESS the query starts with an answer-mode verb (plan/show/explain/…), in which case
+      // we keep the detected answer mode. Prevents "Plan a refactor …" from flipping to build.
       let finalMode: AgentMode
-      if Self.buildTaskTypes.contains(finalLabel) && detectedMode == .answer {
+      if Self.buildTaskTypes.contains(finalLabel) && detectedMode == .answer
+         && !Self.answerModeFirstWords.contains(firstWord) {
         finalMode = .build
         debug("Mode override: answer → build (taskType \(finalLabel) implies build)")
       } else {
@@ -1437,8 +1453,9 @@ public actor Orchestrator {
       prompt: prompt, system: Prompts.classifySystem, as: AgentIntent.self
     )
 
-    // Post-classification guards for LLM fallback
-    if Self.buildTaskTypes.contains(intent.taskType) && intent.agentMode == .answer {
+    // Post-classification guards for LLM fallback — same answer-mode-verb exemption.
+    if Self.buildTaskTypes.contains(intent.taskType) && intent.agentMode == .answer
+       && !Self.answerModeFirstWords.contains(firstWord) {
       intent = AgentIntent(
         domain: intent.domain, taskType: intent.taskType,
         complexity: intent.complexity, mode: "build", targets: intent.targets

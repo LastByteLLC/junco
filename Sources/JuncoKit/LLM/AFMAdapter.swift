@@ -1,35 +1,19 @@
 // AFMAdapter.swift — Apple Foundation Models backend
+//
+// Each call creates a fresh LanguageModelSession (lightweight, not designed for reuse
+// across unrelated prompts). Always uses `.default` — LoRA loading was removed due to
+// an Apple-confirmed APFS metadata leak on current macOS (~100MB/call); see Apple
+// Forums thread 823001. Do not re-introduce LoRA loading until Apple ships a fix.
 
 import Foundation
 import FoundationModels
 
-/// On-device LLM adapter using Apple Foundation Models.
-/// Each call creates a fresh LanguageModelSession (lightweight, not designed for reuse
-/// across unrelated prompts).
-/// Optionally loads a LoRA adapter from a .fmadapter package for improved output quality.
 public actor AFMAdapter: LLMAdapter {
-
-  /// LoRA adapter loaded from .fmadapter package, if available.
-  private var loraAdapter: FoundationModels.SystemLanguageModel.Adapter?
 
   nonisolated public let backendName = "Apple Foundation Models (Neural Engine)"
   nonisolated public let isAFM = true
 
   public init() {}
-
-  /// Try to load the junco LoRA adapter by registered name.
-  /// Fails silently — junco works fine without it, just with lower quality.
-  public func loadAdapter(named name: String = "junco_coding") {
-    loraAdapter = try? FoundationModels.SystemLanguageModel.Adapter(name: name)
-  }
-
-  /// Load adapter from a .fmadapter file on disk (for local testing).
-  public func loadAdapter(from url: URL) {
-    loraAdapter = try? FoundationModels.SystemLanguageModel.Adapter(fileURL: url)
-  }
-
-  /// Whether a LoRA adapter is currently loaded.
-  public var hasAdapter: Bool { loraAdapter != nil }
 
   // MARK: - Pre-warming
 
@@ -45,9 +29,7 @@ public actor AFMAdapter: LLMAdapter {
 
   // MARK: - Session factory
 
-  private func systemModel() -> FoundationModels.SystemLanguageModel {
-    loraAdapter.map { FoundationModels.SystemLanguageModel(adapter: $0) } ?? .default
-  }
+  private func systemModel() -> FoundationModels.SystemLanguageModel { .default }
 
   private func makeSession(
     instructions: Instructions?,
