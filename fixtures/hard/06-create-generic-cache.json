@@ -1,0 +1,18 @@
+{
+  "name": "create-generic-cache",
+  "query": "Create Sources/SimpleCache.swift containing a generic struct SimpleCache<Key: Hashable, Value> with: a private var storage: [Key: Value] defaulting to [:]; a mutating func set(_ key: Key, _ value: Value); a func get(_ key: Key) -> Value? that returns the stored value or nil. No explanation.",
+  "destructive": true,
+  "expectedMode": "build",
+  "targetFile": "Sources/SimpleCache.swift",
+  "qualityCriteria": [
+    "generic struct SimpleCache<Key: Hashable, Value>",
+    "mutating func set",
+    "func get returning optional"
+  ],
+  "checks": [
+    {"kind": "compiles"},
+    {"kind": "hasType", "name": "SimpleCache", "category": "struct"},
+    {"kind": "hasMember", "on": "SimpleCache", "name": "set", "member": "func"},
+    {"kind": "hasMember", "on": "SimpleCache", "name": "get", "member": "func"}
+  ]
+}

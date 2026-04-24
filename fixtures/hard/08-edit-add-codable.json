@@ -1,0 +1,21 @@
+{
+  "name": "edit-add-codable",
+  "query": "Edit Sources/Book.swift to make struct Book conform to Codable. Do not change anything else.",
+  "destructive": true,
+  "expectedMode": "build",
+  "targetFile": "Sources/Book.swift",
+  "initialFiles": {
+    "Sources/Book.swift": "import Foundation\n\nstruct Book {\n    let title: String\n    let author: String\n    let pages: Int\n}\n"
+  },
+  "qualityCriteria": [
+    "Book conforms to Codable",
+    "title/author/pages preserved"
+  ],
+  "checks": [
+    {"kind": "compiles"},
+    {"kind": "hasType", "name": "Book", "category": "struct", "conformsTo": ["Codable"]},
+    {"kind": "hasMember", "on": "Book", "name": "title", "member": "property"},
+    {"kind": "hasMember", "on": "Book", "name": "author", "member": "property"},
+    {"kind": "hasMember", "on": "Book", "name": "pages", "member": "property"}
+  ]
+}

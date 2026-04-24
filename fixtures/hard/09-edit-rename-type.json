@@ -1,0 +1,20 @@
+{
+  "name": "edit-rename-type",
+  "query": "In Sources/OldName.swift, rename the type Old to New. Update every reference in the file. Do not change any other behavior.",
+  "destructive": true,
+  "expectedMode": "build",
+  "targetFile": "Sources/OldName.swift",
+  "initialFiles": {
+    "Sources/OldName.swift": "import Foundation\n\nstruct Old {\n    let id: Int\n}\n\nfunc makeOld(id: Int) -> Old {\n    return Old(id: id)\n}\n\nlet defaultOld = Old(id: 0)\n"
+  },
+  "qualityCriteria": [
+    "type renamed Old -> New",
+    "all references updated",
+    "file compiles"
+  ],
+  "checks": [
+    {"kind": "compiles"},
+    {"kind": "hasType", "name": "New", "category": "struct"},
+    {"kind": "doesNotReferenceType", "name": "Old"}
+  ]
+}

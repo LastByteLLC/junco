@@ -1,0 +1,21 @@
+{
+  "name": "create-todo-item",
+  "query": "Create Sources/TodoItem.swift with: (1) an enum TodoStatus: String, Codable with cases pending, inProgress, done; (2) a struct TodoItem: Codable, Identifiable with stored properties id: UUID (default UUID()), title: String, status: TodoStatus (default .pending), createdAt: Date (default Date()), dueAt: Date? (default nil); (3) a computed property isOverdue: Bool returning true when dueAt is non-nil and before Date() and status is not .done; (4) a method mark(as newStatus: TodoStatus) -> TodoItem returning a copy with the new status. Use import Foundation.",
+  "destructive": true,
+  "expectedMode": "build",
+  "targetFile": "Sources/TodoItem.swift",
+  "qualityCriteria": [
+    "enum TodoStatus with three cases",
+    "struct TodoItem with Codable + Identifiable",
+    "computed var isOverdue",
+    "method mark(as:) -> TodoItem"
+  ],
+  "checks": [
+    {"kind": "compiles"},
+    {"kind": "hasType", "name": "TodoStatus", "category": "enum", "conformsTo": ["String", "Codable"]},
+    {"kind": "hasCase", "on": "TodoStatus", "names": ["pending", "inProgress", "done"]},
+    {"kind": "hasType", "name": "TodoItem", "category": "struct", "conformsTo": ["Codable", "Identifiable"]},
+    {"kind": "hasMember", "on": "TodoItem", "name": "isOverdue", "member": "computed"},
+    {"kind": "hasMember", "on": "TodoItem", "name": "mark", "member": "func", "returns": "TodoItem"}
+  ]
+}

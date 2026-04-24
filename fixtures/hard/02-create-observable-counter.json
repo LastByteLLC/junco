@@ -1,0 +1,19 @@
+{
+  "name": "create-observable-counter",
+  "query": "Create Sources/Counter.swift containing an @Observable class named Counter with: a var value: Int defaulting to 0, an increment() method that adds 1 to value, and a decrement() method that subtracts 1 from value. Import Observation. No explanation.",
+  "destructive": true,
+  "expectedMode": "build",
+  "targetFile": "Sources/Counter.swift",
+  "qualityCriteria": [
+    "@Observable class Counter",
+    "var value: Int defaulting 0",
+    "increment() and decrement() methods"
+  ],
+  "checks": [
+    {"kind": "compiles"},
+    {"kind": "hasType", "name": "Counter", "category": "class"},
+    {"kind": "hasMember", "on": "Counter", "name": "value", "member": "property"},
+    {"kind": "hasMember", "on": "Counter", "name": "increment", "member": "func"},
+    {"kind": "hasMember", "on": "Counter", "name": "decrement", "member": "func"}
+  ]
+}

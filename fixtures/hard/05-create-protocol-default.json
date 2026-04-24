@@ -1,0 +1,17 @@
+{
+  "name": "create-protocol-default",
+  "query": "Create Sources/Nameable.swift containing: protocol Nameable with a required var name: String { get }; and an extension Nameable providing a default computed var greeting: String that returns \"Hello, \\(name)!\". No explanation.",
+  "destructive": true,
+  "expectedMode": "build",
+  "targetFile": "Sources/Nameable.swift",
+  "qualityCriteria": [
+    "protocol Nameable",
+    "extension Nameable with default greeting"
+  ],
+  "checks": [
+    {"kind": "compiles"},
+    {"kind": "hasType", "name": "Nameable", "category": "protocol"},
+    {"kind": "hasMember", "on": "Nameable", "name": "name", "member": "property"},
+    {"kind": "hasMember", "on": "Nameable", "name": "greeting", "member": "computed"}
+  ]
+}

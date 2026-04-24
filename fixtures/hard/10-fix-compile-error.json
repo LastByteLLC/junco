@@ -1,0 +1,21 @@
+{
+  "name": "fix-compile-error",
+  "query": "Fix the compile error in Sources/Light.swift. The function switches on Light.current, but Light has no static property called current. Make the function an instance method on Light that switches on self instead.",
+  "destructive": true,
+  "expectedMode": "build",
+  "targetFile": "Sources/Light.swift",
+  "initialFiles": {
+    "Sources/Light.swift": "import Foundation\n\nenum Light {\n    case red\n    case yellow\n    case green\n}\n\nfunc advance() -> Light {\n    switch Light.current {\n    case .red: return .green\n    case .yellow: return .red\n    case .green: return .yellow\n    }\n}\n"
+  },
+  "qualityCriteria": [
+    "Light gains instance method",
+    "switch uses self, not Light.current",
+    "compiles cleanly"
+  ],
+  "checks": [
+    {"kind": "compiles"},
+    {"kind": "hasType", "name": "Light", "category": "enum"},
+    {"kind": "hasCase", "on": "Light", "names": ["red", "yellow", "green"]},
+    {"kind": "doesNotReferenceType", "name": "Light.current"}
+  ]
+}

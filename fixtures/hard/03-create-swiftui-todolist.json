@@ -1,0 +1,18 @@
+{
+  "name": "create-swiftui-todolist",
+  "query": "Create Sources/TodoListView.swift containing a SwiftUI View called TodoListView with: @State private var items: [String] = [\"Buy milk\", \"Walk dog\"]; body that renders a NavigationStack containing a List iterating items with ForEach and showing each item as a Text. Import SwiftUI. No explanation.",
+  "destructive": true,
+  "expectedMode": "build",
+  "targetFile": "Sources/TodoListView.swift",
+  "qualityCriteria": [
+    "struct TodoListView: View",
+    "@State items",
+    "body with List + ForEach"
+  ],
+  "checks": [
+    {"kind": "compiles"},
+    {"kind": "hasType", "name": "TodoListView", "category": "struct", "conformsTo": ["View"]},
+    {"kind": "hasMember", "on": "TodoListView", "name": "items", "member": "property"},
+    {"kind": "hasMember", "on": "TodoListView", "name": "body", "member": "computed"}
+  ]
+}

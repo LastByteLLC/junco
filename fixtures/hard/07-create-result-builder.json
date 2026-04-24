@@ -1,0 +1,16 @@
+{
+  "name": "create-string-builder",
+  "query": "Create Sources/StringListBuilder.swift containing @resultBuilder struct StringListBuilder that builds an array of strings. It should implement static func buildBlock(_ components: String...) -> [String]. No explanation.",
+  "destructive": true,
+  "expectedMode": "build",
+  "targetFile": "Sources/StringListBuilder.swift",
+  "qualityCriteria": [
+    "@resultBuilder struct StringListBuilder",
+    "static buildBlock returning [String]"
+  ],
+  "checks": [
+    {"kind": "compiles"},
+    {"kind": "hasType", "name": "StringListBuilder", "category": "struct"},
+    {"kind": "hasMember", "on": "StringListBuilder", "name": "buildBlock", "member": "func"}
+  ]
+}
