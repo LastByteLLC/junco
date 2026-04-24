@@ -757,6 +757,15 @@ struct EvalHarness {
       print("Trace dir: \(traceDir)")
     }
 
+    // Build ONE Orchestrator up-front and reuse it across cases. Every case previously
+    // paid the full cost of FileIndexer + ReferenceGraph + ProjectAnalyzer (~3-5s on this
+    // repo), which dominated `--split search` wall-clock on deterministic cases with 0 LLM
+    // calls. Orchestrator.run() already creates a fresh WorkingMemory per call, so the
+    // cross-case state is limited to the project index / snapshot / reference graph —
+    // all of which are project-wide and SHOULD be shared.
+    let orchestrator = Orchestrator(adapter: effectiveAdapter, workingDirectory: workingDirectory)
+    if verbose { await orchestrator.setVerbose(true) }
+
     var results: [EvalResult] = []
 
     for (i, evalCase) in cases.enumerated() {
@@ -769,9 +778,9 @@ struct EvalHarness {
 
       let result: EvalResult = await TraceContext.$sink.withValue(sink) {
         if evalCase.destructive {
-          return await runDestructive(evalCase, adapter: effectiveAdapter)
+          return await runDestructive(evalCase, orchestrator: orchestrator)
         } else {
-          return await runCase(evalCase, adapter: effectiveAdapter)
+          return await runCase(evalCase, orchestrator: orchestrator)
         }
       }
 
@@ -890,10 +899,7 @@ struct EvalHarness {
 
   // MARK: - Run Single Case
 
-  private func runCase(_ evalCase: EvalCase, adapter: any LLMAdapter) async -> EvalResult {
-    let orchestrator = Orchestrator(adapter: adapter, workingDirectory: workingDirectory)
-    if verbose { await orchestrator.setVerbose(true) }
-
+  private func runCase(_ evalCase: EvalCase, orchestrator: Orchestrator) async -> EvalResult {
     let parser = InputParser(workingDirectory: workingDirectory)
     let parsed = parser.parse(evalCase.query)
     let refs = evalCase.referencedFiles.isEmpty ? parsed.referencedFiles : evalCase.referencedFiles
@@ -961,7 +967,7 @@ struct EvalHarness {
 
   // MARK: - Destructive Test (Git Checkpoint + Rewind)
 
-  private func runDestructive(_ evalCase: EvalCase, adapter: any LLMAdapter) async -> EvalResult {
+  private func runDestructive(_ evalCase: EvalCase, orchestrator: Orchestrator) async -> EvalResult {
     let shell = SafeShell(workingDirectory: workingDirectory)
 
     // Checkpoint: stash any existing changes
@@ -976,7 +982,7 @@ struct EvalHarness {
     }
 
     // Run the test
-    let result = await runCase(evalCase, adapter: adapter)
+    let result = await runCase(evalCase, orchestrator: orchestrator)
 
     // Rewind: discard all changes
     _ = try? await shell.execute("git checkout -- . 2>/dev/null")
