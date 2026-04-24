@@ -24,10 +24,14 @@ public enum Config {
   public static var maxTurnHistory: Int { MetaConfig.shared.maxTurnHistory ?? 5 }
 
   /// Maximum number of observations kept in working memory.
-  public static var maxObservations: Int { MetaConfig.shared.maxObservations ?? 5 }
+  /// Lowered from 5 to 2 after the `lean` meta-harness candidate validated 34/34 across
+  /// canary+search+holdout with a refSim improvement (0.740 → 0.756). Tighter memory forces
+  /// the agent to rely on the current query + fresh observations instead of noisier prior state.
+  public static var maxObservations: Int { MetaConfig.shared.maxObservations ?? 2 }
 
   /// Maximum number of errors kept in working memory.
-  public static var maxErrors: Int { MetaConfig.shared.maxErrors ?? 5 }
+  /// Lowered from 5 to 2 alongside `maxObservations` (same validation).
+  public static var maxErrors: Int { MetaConfig.shared.maxErrors ?? 2 }
 
   // MARK: - Tools
 

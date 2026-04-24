@@ -28,26 +28,31 @@ struct WorkingMemoryTests {
     #expect(desc.contains("fix"))
   }
 
-  @Test("observations auto-compact to last 5")
+  @Test("observations auto-compact to Config.maxObservations")
   func observationCompaction() {
     var memory = WorkingMemory(query: "test")
-    for i in 0..<10 {
+    let cap = Config.maxObservations
+    let inputCount = cap * 2  // add twice the cap so we definitely overflow
+    for i in 0..<inputCount {
       memory.addObservation(StepObservation(
         tool: "bash", outcome: .ok, keyFact: "step \(i)"
       ))
     }
-    #expect(memory.observations.count == 5)
-    #expect(memory.observations.first?.keyFact == "step 5")
+    #expect(memory.observations.count == cap)
+    // First kept entry should be the one at index (inputCount - cap)
+    #expect(memory.observations.first?.keyFact == "step \(inputCount - cap)")
   }
 
-  @Test("errors auto-compact to last 5")
+  @Test("errors auto-compact to Config.maxErrors")
   func errorCompaction() {
     var memory = WorkingMemory(query: "test")
-    for i in 0..<8 {
+    let cap = Config.maxErrors
+    let inputCount = cap + 3  // overflow by 3
+    for i in 0..<inputCount {
       memory.addError("error \(i)")
     }
-    #expect(memory.errors.count == 5)
-    #expect(memory.errors.first == "error 3")
+    #expect(memory.errors.count == cap)
+    #expect(memory.errors.first == "error \(inputCount - cap)")
   }
 
   @Test("touched files are tracked")

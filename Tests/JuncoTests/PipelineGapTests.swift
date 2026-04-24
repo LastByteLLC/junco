@@ -479,7 +479,10 @@ struct BudgetOptimizationTests {
   @Test("compactDescription at step 5 uses compact counter")
   func compactDescriptionLateStep() {
     var mem = WorkingMemory(query: "build app", workingDirectory: "/tmp/project")
-    for i in 0..<5 {
+    // Saturate the observations buffer so the compact counter equals the cap.
+    // Uses Config.maxObservations so this stays valid if the default cap changes.
+    let cap = Config.maxObservations
+    for i in 0..<(cap + 2) {  // overflow by 2 to guarantee the cap
       mem.addObservation(StepObservation(tool: "create", outcome: .ok, keyFact: "File \(i)"))
     }
     mem.currentStepIndex = 5
@@ -487,8 +490,8 @@ struct BudgetOptimizationTests {
     let desc = mem.compactDescription()
     // Should NOT have individual observations
     #expect(!desc.contains("File 0"))
-    // Should have compact counter
-    #expect(desc.contains("5 ok"))
+    // Should have compact counter matching the cap
+    #expect(desc.contains("\(cap) ok"))
   }
 
   @Test("compactDescription at step 5 is shorter than step 0")
