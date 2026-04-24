@@ -42,6 +42,11 @@ struct EvalResult: Sendable {
   let modeCorrect: Bool?       // nil if no expected mode
   /// Cosine similarity (0…1) between answer and canonical reference, or nil if no reference defined.
   let referenceSimilarity: Double?
+  /// True when every .swift file the case generated or modified compiles under
+  /// `swiftc -typecheck`. Nil when the case produced no .swift files.
+  let generatedCodeCompiles: Bool?
+  /// First compiler error message captured from any generated .swift file (or nil).
+  let generatedCodeError: String?
 }
 
 // MARK: - Splits
@@ -825,6 +830,8 @@ struct EvalHarness {
       let answerPreview: String
       let errors: [String]
       let referenceSimilarity: Double?
+      let generatedCodeCompiles: Bool?
+      let generatedCodeError: String?
     }
     struct Summary: Encodable {
       let splitFilter: String?
@@ -843,6 +850,8 @@ struct EvalHarness {
       let referenceScoredCount: Int
       let meanReferenceSimilarity: Double?
       let minReferenceSimilarity: Double?
+      let codeGenCaseCount: Int
+      let codeGenCompileRate: Double?
       let cases: [CaseSummary]
     }
     let perCase = results.map {
@@ -858,7 +867,9 @@ struct EvalHarness {
         filesModified: $0.filesModified,
         answerPreview: String($0.answer.prefix(400)),
         errors: $0.errors,
-        referenceSimilarity: $0.referenceSimilarity
+        referenceSimilarity: $0.referenceSimilarity,
+        generatedCodeCompiles: $0.generatedCodeCompiles,
+        generatedCodeError: $0.generatedCodeError
       )
     }
     let durations = results.map { $0.durationSeconds }
@@ -869,6 +880,10 @@ struct EvalHarness {
     let refSims = results.compactMap { $0.referenceSimilarity }
     let meanRef = refSims.isEmpty ? nil : refSims.reduce(0, +) / Double(refSims.count)
     let minRef = refSims.min()
+    let codeGenResults = results.compactMap { $0.generatedCodeCompiles }
+    let codeGenRate: Double? = codeGenResults.isEmpty
+      ? nil
+      : Double(codeGenResults.filter { $0 }.count) / Double(codeGenResults.count)
     let summary = Summary(
       splitFilter: splitFilter?.rawValue,
       caseCount: results.count,
@@ -886,6 +901,8 @@ struct EvalHarness {
       referenceScoredCount: refSims.count,
       meanReferenceSimilarity: meanRef,
       minReferenceSimilarity: minRef,
+      codeGenCaseCount: codeGenResults.count,
+      codeGenCompileRate: codeGenRate,
       cases: perCase
     )
     let encoder = JSONEncoder()
@@ -932,6 +949,8 @@ struct EvalHarness {
       } ?? []
 
       let similarity = referenceScorer.score(caseName: evalCase.name, answer: result.reflection.insight)
+      let modified = Array(result.memory.touchedFiles)
+      let (codeCompiles, codeError) = validateGeneratedSwift(paths: modified)
       return EvalResult(
         caseName: evalCase.name,
         query: evalCase.query,
@@ -943,11 +962,13 @@ struct EvalHarness {
         succeeded: result.reflection.succeeded,
         llmCalls: result.memory.llmCalls,
         tokensUsed: result.memory.totalTokensUsed,
-        filesModified: Array(result.memory.touchedFiles),
+        filesModified: modified,
         durationSeconds: duration,
         qualityCriteria: evalCase.qualityCriteria,
         modeCorrect: evalCase.expectedMode.map { $0 == capturedMode },
-        referenceSimilarity: similarity
+        referenceSimilarity: similarity,
+        generatedCodeCompiles: codeCompiles,
+        generatedCodeError: codeError
       )
     } catch {
       let capturedMode = modeLock.withLock { $0 }
@@ -960,9 +981,32 @@ struct EvalHarness {
         filesModified: [], durationSeconds: Date().timeIntervalSince(start),
         qualityCriteria: evalCase.qualityCriteria,
         modeCorrect: evalCase.expectedMode.map { $0 == capturedMode },
-        referenceSimilarity: nil
+        referenceSimilarity: nil,
+        generatedCodeCompiles: nil,
+        generatedCodeError: nil
       )
     }
+  }
+
+  /// Validate every .swift file in `paths` with SwiftValidator. Returns:
+  /// - (nil, nil) if no .swift files modified
+  /// - (true, nil) if every Swift file compiles cleanly
+  /// - (false, firstError) if at least one Swift file fails
+  private func validateGeneratedSwift(paths: [String]) -> (Bool?, String?) {
+    let swiftFiles = paths.filter { $0.hasSuffix(".swift") }
+    guard !swiftFiles.isEmpty else { return (nil, nil) }
+    let registry = ValidatorRegistry.default()
+    var firstError: String?
+    for relPath in swiftFiles {
+      let absPath = relPath.hasPrefix("/")
+        ? relPath
+        : (workingDirectory as NSString).appendingPathComponent(relPath)
+      guard let content = try? String(contentsOfFile: absPath, encoding: .utf8) else { continue }
+      if let error = registry.validate(code: content, filePath: absPath) {
+        firstError = firstError ?? "\(relPath): \(String(error.prefix(200)))"
+      }
+    }
+    return (firstError == nil, firstError)
   }
 
   // MARK: - Destructive Test (Git Checkpoint + Rewind)
