@@ -345,10 +345,17 @@ public actor Orchestrator {
         break
       }
 
+      if ProcessInfo.processInfo.environment["JUNCO_ORCH_TRACE"] == "1" {
+        FileHandle.standardError.write(Data("[ORCH-runBuild] task \(index + 1)/\(tasks.count) start: \(task.action.rawValue) \(task.target)\n".utf8))
+      }
+      let obStartT = Date()
       let observation = await executeConcreteTask(task: task, memory: &memory)
       memory.addObservation(observation)
       if task.action == .create || task.action == .edit {
         filesWereModified = true
+      }
+      if ProcessInfo.processInfo.environment["JUNCO_ORCH_TRACE"] == "1" {
+        FileHandle.standardError.write(Data("[ORCH-runBuild] task \(index + 1) done in \(String(format: "%.1f", Date().timeIntervalSince(obStartT)))s outcome=\(observation.outcome.rawValue)\n".utf8))
       }
       debug("TASK[\(index + 1)] → [\(observation.outcome.rawValue)] \(observation.tool): \(observation.keyFact)")
 
@@ -552,8 +559,16 @@ public actor Orchestrator {
       }
     }
 
+    let postStartT = Date()
+    func postTrace(_ m: String) {
+      if ProcessInfo.processInfo.environment["JUNCO_ORCH_TRACE"] == "1" {
+        FileHandle.standardError.write(Data("[ORCH-post] \(m) (+\(String(format: "%.2f", Date().timeIntervalSince(postStartT)))s)\n".utf8))
+      }
+    }
+    postTrace("buildAndFix")
     // Build-fix reflexion loop: attempt to fix build errors before reflecting
     await buildAndFix(memory: &memory)
+    postTrace("buildAndFix done")
 
     // Persist type manifest to scratchpad for cross-turn coherence
     if memory.touchedFiles.count > 1 {
@@ -562,11 +577,14 @@ public actor Orchestrator {
         scratchpad.write(key: "generated_types", value: manifest)
       }
     }
+    postTrace("scratchpad done")
 
     let reflection = reflect(memory: memory)
     debug("REFLECT → succeeded:\(reflection.succeeded) insight:\(reflection.insight)")
+    postTrace("reflect done")
 
     try? reflectionStore.save(query: query, reflection: reflection)
+    postTrace("reflectionStore.save done")
 
     metrics.tasksCompleted += 1
     metrics.totalTokensUsed += memory.totalTokensUsed
@@ -1656,6 +1674,11 @@ public actor Orchestrator {
         }
       }
 
+      let stepTrace = ProcessInfo.processInfo.environment["JUNCO_ORCH_TRACE"] == "1"
+      func trace(_ m: String) {
+        if stepTrace { FileHandle.standardError.write(Data("[ORCH-create] \(m)\n".utf8)) }
+      }
+      trace("start TreeSitterRepair")
       // TreeSitterRepair: deterministic structural fixes before compiler check
       if target.hasSuffix(".swift") && !content.isEmpty {
         let (repaired, repairFixes) = treeSitterRepair.repair(content)
@@ -1664,6 +1687,7 @@ public actor Orchestrator {
           content = repaired
         }
       }
+      trace("TreeSitterRepair done")
 
       // CVF + validation: skip Package.swift (PackageDescription unavailable to plain swiftc)
       let isManifest = target.lowercased().hasSuffix("package.swift")
@@ -1671,11 +1695,17 @@ public actor Orchestrator {
         let fileName = (target as NSString).lastPathComponent.lowercased()
         let isViewFile = fileName.contains("view") || fileName.contains("screen")
         let cycles = isViewFile ? Config.maxCVFCyclesView : 2
+        trace("compileVerifyFix cycles=\(cycles)")
         content = await compileVerifyFix(content: content, filePath: target, memory: &memory, maxCycles: cycles)
+        trace("compileVerifyFix done")
       }
+      trace("linter.format")
       content = linter.format(content: content, filePath: target)
+      trace("linter.format done")
       if !isManifest {
+        trace("validateAndFix")
         let validated = try await validateAndFix(content: content, filePath: target, memory: &memory)
+        trace("validateAndFix done")
         content = validated.content
         if let error = validated.error {
           return StepObservation(tool: "create", outcome: .validationFailed, keyFact: error)
@@ -1683,24 +1713,30 @@ public actor Orchestrator {
       }
 
       // Permission check
+      trace("askPermission")
       let decision = await askPermission(tool: "create", target: target, detail: "\(content.count) chars")
       guard decision != .deny else {
         return StepObservation(tool: "create", outcome: .denied, keyFact: "Permission denied")
       }
 
       // Write file
+      trace("files.write")
       memory.touch(target)
       metrics.filesModified += 1
       try files.write(path: target, content: content)
       lastDiffs.append(diffPreview.diffWrite(filePath: target, existingContent: nil, newContent: content))
+      trace("files.write done")
 
       // Update live index so subsequent steps see this file's types
+      trace("TreeSitterExtractor")
       let newEntries = TreeSitterExtractor().extract(from: content, file: target)
       projectIndex = projectIndex.filter { $0.filePath != target } + newEntries
+      trace("ProjectAnalyzer.updateSnapshot")
       projectSnapshot = projectAnalyzer.updateSnapshot(
         projectSnapshot, afterWriting: target, content: content,
         extractor: TreeSitterExtractor()
       )
+      trace("updateSnapshot done")
 
       // Post-write verification
       let urls = Self.extractURLs(memory.query)
