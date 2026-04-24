@@ -93,8 +93,18 @@ public struct ShellScriptValidator: CodeValidator, Sendable {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/bin/bash")
     process.arguments = ["-n", "-c", trimmed]
-    let errPipe = Pipe()
-    process.standardError = errPipe
+    // File redirect rather than Pipe: avoids the kernel-buffer deadlock that surfaced
+    // in SwiftValidator / SafeShell (pipe fills → child blocks → waitUntilExit hangs).
+    let errPath = NSTemporaryDirectory() + "junco-shcheck-err-\(UUID().uuidString).log"
+    guard FileManager.default.createFile(atPath: errPath, contents: nil),
+          let errHandle = try? FileHandle(forWritingTo: URL(fileURLWithPath: errPath)) else {
+      return nil
+    }
+    defer {
+      try? errHandle.close()
+      try? FileManager.default.removeItem(atPath: errPath)
+    }
+    process.standardError = errHandle
     process.standardOutput = FileHandle.nullDevice
 
     do {
@@ -106,10 +116,9 @@ public struct ShellScriptValidator: CodeValidator, Sendable {
 
     guard process.terminationStatus != 0 else { return nil }
 
-    let stderr = String(
-      data: errPipe.fileHandleForReading.readDataToEndOfFile(),
-      encoding: .utf8
-    ) ?? ""
+    try? errHandle.close()
+    let errData = (try? Data(contentsOf: URL(fileURLWithPath: errPath))) ?? Data()
+    let stderr = String(data: errData, encoding: .utf8) ?? ""
     let errors = stderr.components(separatedBy: "\n")
       .filter { $0.contains("syntax error") || $0.contains("unexpected") }
       .prefix(3)

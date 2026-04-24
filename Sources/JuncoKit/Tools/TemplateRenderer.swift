@@ -313,8 +313,17 @@ public struct TemplateRenderer: Sendable {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
     process.arguments = ["swift", "--version"]
-    let pipe = Pipe()
-    process.standardOutput = pipe
+    // File redirect for consistency with other subprocess callers — no pipe deadlock risk.
+    let outPath = NSTemporaryDirectory() + "junco-swiftver-\(UUID().uuidString).log"
+    guard FileManager.default.createFile(atPath: outPath, contents: nil),
+          let outHandle = try? FileHandle(forWritingTo: URL(fileURLWithPath: outPath)) else {
+      return Config.defaultSwiftToolsVersion
+    }
+    defer {
+      try? outHandle.close()
+      try? FileManager.default.removeItem(atPath: outPath)
+    }
+    process.standardOutput = outHandle
     process.standardError = FileHandle.nullDevice
 
     do {
@@ -328,7 +337,9 @@ public struct TemplateRenderer: Sendable {
       return Config.defaultSwiftToolsVersion
     }
 
-    let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    try? outHandle.close()
+    let outData = (try? Data(contentsOf: URL(fileURLWithPath: outPath))) ?? Data()
+    let output = String(data: outData, encoding: .utf8) ?? ""
     // Parse "Swift version 6.3" or "Apple Swift version 6.3"
     if let match = output.firstMatch(of: /Swift version (\d+\.\d+)/) {
       return String(match.1)

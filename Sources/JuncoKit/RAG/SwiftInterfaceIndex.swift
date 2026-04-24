@@ -134,17 +134,27 @@ public actor SwiftInterfaceIndex {
       return found
     }
 
-    // Fallback: try xcrun (requires Xcode CLI tools)
+    // Fallback: try xcrun (requires Xcode CLI tools).
+    // File redirect for consistency with other subprocess callers — no pipe deadlock risk.
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
     process.arguments = ["--show-sdk-path"]
-    let pipe = Pipe()
-    process.standardOutput = pipe
+    let outPath = NSTemporaryDirectory() + "junco-sdkpath-\(UUID().uuidString).log"
+    guard FileManager.default.createFile(atPath: outPath, contents: nil),
+          let outHandle = try? FileHandle(forWritingTo: URL(fileURLWithPath: outPath)) else {
+      return nil
+    }
+    defer {
+      try? outHandle.close()
+      try? FileManager.default.removeItem(atPath: outPath)
+    }
+    process.standardOutput = outHandle
     process.standardError = FileHandle.nullDevice
     do {
       try process.run()
       process.waitUntilExit()
-      let data = pipe.fileHandleForReading.readDataToEndOfFile()
+      try? outHandle.close()
+      let data = (try? Data(contentsOf: URL(fileURLWithPath: outPath))) ?? Data()
       if let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
          FileManager.default.fileExists(atPath: path) {
         return path
