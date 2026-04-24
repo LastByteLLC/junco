@@ -31,6 +31,32 @@ public actor AFMAdapter: LLMAdapter {
 
   private func systemModel() -> FoundationModels.SystemLanguageModel { .default }
 
+  // MARK: - Per-call timeout
+
+  /// Hard ceiling on a single AFM generation call. AFM occasionally stalls on
+  /// specific prompts (observed inside CVF loops for some create/edit cases).
+  /// Without this ceiling, hangs propagate up and block the whole pipeline.
+  /// 120s is well above the 99th-percentile legitimate call duration observed in evals.
+  private let perCallTimeoutSec: Double = 120
+
+  /// Run `body` with a per-call timeout. If the deadline is exceeded, cancels the
+  /// work and throws `LLMError.generationFailed("AFM timeout after Ns")`. The wrapped
+  /// session call may itself be un-cancellable; the timeout at least unblocks callers.
+  private func withAFMTimeout<T: Sendable>(_ body: @Sendable @escaping () async throws -> T) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+      group.addTask { try await body() }
+      group.addTask { [perCallTimeoutSec] in
+        try await Task.sleep(nanoseconds: UInt64(perCallTimeoutSec * 1_000_000_000))
+        throw LLMError.generationFailed("AFM timeout after \(Int(perCallTimeoutSec))s")
+      }
+      guard let result = try await group.next() else {
+        throw LLMError.generationFailed("AFM timeout task group empty")
+      }
+      group.cancelAll()
+      return result
+    }
+  }
+
   private func makeSession(
     instructions: Instructions?,
     tools: [any FoundationModels.Tool]
@@ -75,8 +101,9 @@ public actor AFMAdapter: LLMAdapter {
     let session = makeSession(instructions: instructions, tools: tools)
 
     do {
-      let response = try await session.respond(to: compactPrompt)
-      return response.content
+      return try await withAFMTimeout {
+        try await session.respond(to: compactPrompt).content
+      }
     } catch let error as FoundationModels.LanguageModelSession.GenerationError {
       throw mapError(error)
     }
@@ -141,13 +168,13 @@ public actor AFMAdapter: LLMAdapter {
     let session = makeSession(instructions: instructions, tools: tools)
 
     do {
-      if let options {
-        let fmOpts = options.toFoundationModels()
-        let response = try await session.respond(to: compactPrompt, generating: type, options: fmOpts)
-        return response.content
-      } else {
-        let response = try await session.respond(to: compactPrompt, generating: type)
-        return response.content
+      return try await withAFMTimeout {
+        if let options {
+          let fmOpts = options.toFoundationModels()
+          return try await session.respond(to: compactPrompt, generating: type, options: fmOpts).content
+        } else {
+          return try await session.respond(to: compactPrompt, generating: type).content
+        }
       }
     } catch let error as FoundationModels.LanguageModelSession.GenerationError {
       throw mapError(error)
