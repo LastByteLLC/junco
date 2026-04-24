@@ -1290,8 +1290,8 @@ public actor Orchestrator {
     "add": "add", "create": "add", "implement": "add", "write": "add", "build": "add",
     "refactor": "refactor", "clean": "refactor", "simplify": "refactor",
     "test": "test",
-    "find": "explore", "search": "explore", "grep": "explore",
-    "where": "explore", "list": "explore", "show": "explore",
+    "find": "explore", "search": "explore", "grep": "explore", "where": "explore", "list": "explore", "show": "explore",
+    "are": "explore", "is": "explore", "does": "explore", "do": "explore", "can": "explore", "has": "explore", "have": "explore", "were": "explore",
     // Plan/review verbs → deterministic answer mode. Without these, "Plan a refactor"
     // hits the LLM classify tier and frequently mis-routes to build. (soft-classify-guard)
     "plan": "plan", "design": "plan", "outline": "plan",
@@ -1339,8 +1339,8 @@ public actor Orchestrator {
   /// is SKIPPED — prevents "Plan a refactor …" from flipping to build.
   /// Validated by meta-harness candidate `soft-classify-guard`: plan-refactor 0→100%.
   private static let answerModeFirstWords: Set<String> = [
-    "plan", "show", "explain", "find", "search", "how", "what", "where",
-    "why", "list", "describe", "summarize", "tell", "review"
+    "plan", "show", "explain", "find", "search", "how", "what", "where", "why", "list",
+    "describe", "summarize", "tell", "review", "are", "is", "does", "do", "can", "has", "have", "was", "were"
   ]
 
   /// Classify the agent mode. Tries ML classifier first, falls back to LLM.
