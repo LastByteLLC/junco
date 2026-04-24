@@ -40,9 +40,14 @@ public actor EmbeddingIndex {
     self.embedding = emb
     self.dimension = emb != nil ? 512 : 0  // NLEmbedding uses 512-dim vectors
     self.cacheURL = cacheURL
-    if let cacheURL, let data = try? Data(contentsOf: cacheURL),
-       let decoded = try? JSONDecoder().decode([String: [Double]].self, from: data) {
-      self.textCache = decoded
+    if let cacheURL, let data = try? Data(contentsOf: cacheURL) {
+      // Prefer the compact Float-on-disk format. Fall back to legacy Double format
+      // so existing cache files don't silently invalidate.
+      if let compact = try? JSONDecoder().decode([String: [Float]].self, from: data) {
+        self.textCache = compact.mapValues { $0.map(Double.init) }
+      } else if let legacy = try? JSONDecoder().decode([String: [Double]].self, from: data) {
+        self.textCache = legacy
+      }
     }
   }
 
@@ -96,10 +101,13 @@ public actor EmbeddingIndex {
   }
 
   /// Serialize the text→vector cache to the configured URL (if set + dirty).
+  /// Stores as Float on disk (half the footprint of Double). NLEmbedding ships f32
+  /// internally so this round-trip is lossless in practice.
   private func persistCacheIfDirty() {
     guard cacheDirty, let cacheURL else { return }
+    let compact = textCache.mapValues { $0.map(Float.init) }
     let encoder = JSONEncoder()
-    guard let data = try? encoder.encode(textCache) else { return }
+    guard let data = try? encoder.encode(compact) else { return }
     let dir = cacheURL.deletingLastPathComponent()
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     try? data.write(to: cacheURL)
