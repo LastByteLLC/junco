@@ -167,6 +167,7 @@ public enum Prompts {
 
   /// System prompt for file creation, tailored to the project domain.
   public static func createSystem(domain: DomainConfig) -> String {
+    if let override = PromptOverrides.shared.createSystem { return override }
     let base = "Output only the file content. No markdown fences, no explanation."
     switch domain.kind {
     case .swift:
@@ -178,9 +179,10 @@ public enum Prompts {
 
   /// System prompt for file editing, tailored to the project domain.
   public static func editSystem(domain: DomainConfig) -> String {
-    "Output the complete modified file. No markdown fences, no explanation. " +
-    "Apply ONLY the requested changes — do not add or modify anything else. " +
-    domain.promptHint
+    if let override = PromptOverrides.shared.editSystem { return override }
+    return "Output the complete modified file. No markdown fences, no explanation. " +
+      "Apply ONLY the requested changes — do not add or modify anything else. " +
+      domain.promptHint
   }
 
   public static var observeSystem: String {

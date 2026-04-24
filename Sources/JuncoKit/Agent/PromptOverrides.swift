@@ -17,6 +17,8 @@ public struct PromptOverrides: Sendable, Codable {
   public var researchQuerySystem: String?
   public var researchSynthesizeSystem: String?
   public var observeSystem: String?
+  public var createSystem: String?
+  public var editSystem: String?
 
   public init() {}
 
