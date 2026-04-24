@@ -1624,9 +1624,9 @@ public actor Orchestrator {
         // produces near-empty skeletons for simple models/configs. Only use it for
         // complex roles or when the prompt is too large for single-pass.
         let fileRole = target.hasSuffix(".swift") ? MicroSkill.inferFileRole(target) : ""
-        let usesTwoPhase = Config.twoPhaseDefault
-          && target.hasSuffix(".swift")
-          && ["view", "viewmodel", "service"].contains(fileRole)
+        // E7: JUNCO_FORCE_TWOPHASE=1 or JUNCO_TWOPHASE_ROLES override default role set.
+        let usesTwoPhase = Config.twoPhaseDefault && target.hasSuffix(".swift")
+          && Self.shouldUseTwoPhase(role: fileRole)
 
         let system0 = Prompts.createSystem(domain: domain)
         if usesTwoPhase {
@@ -2614,9 +2614,19 @@ extension Orchestrator {
   /// After destructive eval rewinds, force the next run() to re-read disk.
   public func invalidateProjectState() { needsReindex = true }
 
-  /// Count top-level `struct`/`class`/`enum`/`actor`/`protocol` declarations in Swift
-  /// source. Uses brace-depth tracking to skip nested types. Consumed by the E5
-  /// structural-preservation guard in `validateAndFix`.
+  /// E7: two-phase role gate via env.
+  fileprivate static func shouldUseTwoPhase(role: String) -> Bool {
+    if ProcessInfo.processInfo.environment["JUNCO_FORCE_TWOPHASE"] == "1" { return true }
+    let roles: Set<String>
+    if let env = ProcessInfo.processInfo.environment["JUNCO_TWOPHASE_ROLES"] {
+      roles = Set(env.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) })
+    } else {
+      roles = ["view", "viewmodel", "service"]
+    }
+    return roles.contains(role)
+  }
+
+  /// Count top-level type declarations in Swift source.
   fileprivate static func countTopLevelTypeDecls(_ source: String) -> Int {
     let pattern = #"^\s*(?:public\s+|private\s+|internal\s+|fileprivate\s+|open\s+|final\s+)*(?:struct|class|enum|actor|protocol)\s+\w+"#
     guard let regex = try? NSRegularExpression(pattern: pattern) else { return 0 }
