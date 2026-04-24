@@ -392,11 +392,19 @@ struct TemplateRetryGuardTests {
     #expect(!renderer.shouldUseTemplate(filePath: "ContentView_Previews.swift"))
   }
 
-  @Test("shouldUseTemplate recognizes service and viewmodel files")
+  @Test("shouldUseTemplate: service default-off, viewmodel on")
   func serviceViewModelRecognition() {
     let renderer = TemplateRenderer()
+    // Service template is default-disabled: empirically, the renderer emits
+    // Swift that references an undeclared User type + URLQueryItem(value: Int)
+    // type error, so off-rate outperforms on-rate by ~66pp on the hard suite.
+    #expect(!renderer.shouldUseTemplate(filePath: "PodcastService.swift"))
+    #expect(!renderer.shouldUseTemplate(filePath: "WeatherService.swift"))
+    // Re-enable explicitly via env override.
+    setenv("JUNCO_ENABLE_TEMPLATES", "service", 1)
     #expect(renderer.shouldUseTemplate(filePath: "PodcastService.swift"))
+    unsetenv("JUNCO_ENABLE_TEMPLATES")
+    // Viewmodel remains default-on.
     #expect(renderer.shouldUseTemplate(filePath: "PodcastViewModel.swift"))
-    #expect(renderer.shouldUseTemplate(filePath: "WeatherService.swift"))
   }
 }

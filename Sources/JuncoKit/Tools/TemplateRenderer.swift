@@ -348,8 +348,51 @@ public struct TemplateRenderer: Sendable {
   }
 
   /// Detect if a file path should use template-based generation.
+  ///
+  /// Measurement (3 reps × sub-check instrument):
+  ///   service template:  on → 2/12 (17 %)  off → 10/12 (83 %). Renders Swift
+  ///                      that references User without declaring it and uses
+  ///                      URLQueryItem(value: Int) (type error). **Default off.**
+  ///   view template:     on → 7/12 (58 %)  off → 0/12 (0 %). List-view renderer
+  ///                      well-calibrated for SwiftUI. **Default on.**
+  ///
+  /// Overrides via env:
+  ///   JUNCO_DISABLE_TEMPLATES=1              → all off
+  ///   JUNCO_DISABLE_TEMPLATES="service,view" → listed off
+  ///   JUNCO_ENABLE_TEMPLATES="service"       → re-enable default-off
   public func shouldUseTemplate(filePath: String) -> Bool {
-    templateSystemPrompt(for: filePath) != nil
+    let env = ProcessInfo.processInfo.environment
+    if env["JUNCO_DISABLE_TEMPLATES"] == "1" { return false }
+    guard templateSystemPrompt(for: filePath) != nil else { return false }
+    let role = Self.templateRole(for: filePath)
+    let disabled = Self.parseCsv(env["JUNCO_DISABLE_TEMPLATES"])
+    let enabled = Self.parseCsv(env["JUNCO_ENABLE_TEMPLATES"])
+    let defaultDisabled: Set<String> = ["service"]
+    if enabled.contains(role) { return true }
+    if disabled.contains(role) { return false }
+    if defaultDisabled.contains(role) { return false }
+    return true
+  }
+
+  private static func parseCsv(_ s: String?) -> Set<String> {
+    guard let s else { return [] }
+    return Set(s.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces).lowercased() })
+  }
+
+  private static func templateRole(for filePath: String) -> String {
+    let name = (filePath as NSString).lastPathComponent.lowercased()
+    if name.hasSuffix(".entitlements") { return "entitlements" }
+    if name.hasSuffix("package.swift") { return "package" }
+    if name == "info.plist" || name.hasSuffix(".plist") { return "plist" }
+    if name.hasSuffix(".xcprivacy") { return "privacy" }
+    if name == ".gitignore" { return "gitignore" }
+    if name.hasSuffix(".xcconfig") { return "xcconfig" }
+    if name.hasSuffix("app.swift") { return "app" }
+    if name.contains("viewmodel") { return "viewmodel" }
+    if name.contains("service") && name.hasSuffix(".swift") { return "service" }
+    if name.contains("view") && name.hasSuffix(".swift") && !name.contains("preview") { return "view" }
+    if name.contains("model") && name.hasSuffix(".swift") { return "model" }
+    return "unknown"
   }
 
   /// Returns the system prompt for template-based generation, or nil if not a template file.
