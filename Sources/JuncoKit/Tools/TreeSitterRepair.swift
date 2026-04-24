@@ -710,7 +710,9 @@ public struct TreeSitterRepair: Sendable {
     // Collect `@State` / `@Published` var names whose array element type is a known primitive.
     let primitives: Set<String> = ["String", "Int", "Double", "Float", "Bool", "UUID", "Date", "Character"]
     // `@State (private|public|…)? var <name>[: [Type]]? [= [literals]]`
-    let declPattern = #"^\s*@(?:State|Published|StateObject|AppStorage)(?:\s+\w+)*\s+(?:public\s+|private\s+|internal\s+|fileprivate\s+|open\s+)?var\s+(\w+)\s*(?::\s*\[([A-Za-z_]\w*)\])?\s*(?:=\s*\[([^\]]*)\])?"#
+    // `@Observable` is a macro (not a property wrapper), but AFM sometimes emits it on
+    // vars anyway — count it so Pass 6 still can identify the array name and fix ForEach.
+    let declPattern = #"^\s*@(?:State|Published|StateObject|AppStorage|Observable|ObservedObject|EnvironmentObject)(?:\s+\w+)*\s+(?:public\s+|private\s+|internal\s+|fileprivate\s+|open\s+)?var\s+(\w+)\s*(?::\s*\[([A-Za-z_]\w*)\])?\s*(?:=\s*\[([^\]]*)\])?"#
     guard let declRegex = try? NSRegularExpression(pattern: declPattern, options: [.anchorsMatchLines]) else {
       return (code, 0)
     }

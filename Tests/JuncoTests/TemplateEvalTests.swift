@@ -407,4 +407,40 @@ struct TemplateRetryGuardTests {
     // Viewmodel remains default-on.
     #expect(renderer.shouldUseTemplate(filePath: "PodcastViewModel.swift"))
   }
+
+  // A.1: view template gated on prompt-level MVVM-presence signal
+
+  @Test("A.1 gate: view template skips for primitive-@State prompt")
+  func viewTemplateSkipsPrimitiveStatePrompt() {
+    let renderer = TemplateRenderer()
+    let simplePrompt = """
+      Create Sources/TodoListView.swift containing a SwiftUI View with
+      @State private var items: [String] = ["a", "b"]; body rendering a List.
+      """
+    #expect(!renderer.shouldUseTemplate(filePath: "TodoListView.swift", prompt: simplePrompt))
+  }
+
+  @Test("A.1 gate: view template fires for MVVM-shaped prompt")
+  func viewTemplateFiresForMVVMPrompt() {
+    let renderer = TemplateRenderer()
+    let mvvmPrompt = """
+      Create Sources/TodoListView.swift. Use @StateObject var viewModel = TodoViewModel().
+      Body iterates viewModel.items.
+      """
+    #expect(renderer.shouldUseTemplate(filePath: "TodoListView.swift", prompt: mvvmPrompt))
+  }
+
+  @Test("A.1 gate: nil prompt preserves prior default-on behavior")
+  func viewTemplateNilPromptStillFires() {
+    let renderer = TemplateRenderer()
+    #expect(renderer.shouldUseTemplate(filePath: "TodoListView.swift"))
+  }
+
+  @Test("A.1 gate: viewmodel role not affected by prompt signal")
+  func viewModelRoleNotGated() {
+    let renderer = TemplateRenderer()
+    // The gate applies only to role=view — viewmodel template always fires.
+    let irrelevantPrompt = "Create Sources/PodcastViewModel.swift with a state"
+    #expect(renderer.shouldUseTemplate(filePath: "PodcastViewModel.swift", prompt: irrelevantPrompt))
+  }
 }

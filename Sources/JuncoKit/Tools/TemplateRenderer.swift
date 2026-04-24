@@ -354,13 +354,17 @@ public struct TemplateRenderer: Sendable {
   ///                      that references User without declaring it and uses
   ///                      URLQueryItem(value: Int) (type error). **Default off.**
   ///   view template:     on → 7/12 (58 %)  off → 0/12 (0 %). List-view renderer
-  ///                      well-calibrated for SwiftUI. **Default on.**
+  ///                      well-calibrated for SwiftUI **when the prompt asks for
+  ///                      an MVVM-shaped view**. For primitive-state prompts
+  ///                      (e.g. `@State var items: [String]`) the template invents
+  ///                      a nonexistent ViewModel — A.1 gates it out on
+  ///                      prompt-level MVVM-absence signals.
   ///
   /// Overrides via env:
   ///   JUNCO_DISABLE_TEMPLATES=1              → all off
   ///   JUNCO_DISABLE_TEMPLATES="service,view" → listed off
   ///   JUNCO_ENABLE_TEMPLATES="service"       → re-enable default-off
-  public func shouldUseTemplate(filePath: String) -> Bool {
+  public func shouldUseTemplate(filePath: String, prompt: String? = nil) -> Bool {
     let env = ProcessInfo.processInfo.environment
     if env["JUNCO_DISABLE_TEMPLATES"] == "1" { return false }
     guard templateSystemPrompt(for: filePath) != nil else { return false }
@@ -371,7 +375,24 @@ public struct TemplateRenderer: Sendable {
     if enabled.contains(role) { return true }
     if disabled.contains(role) { return false }
     if defaultDisabled.contains(role) { return false }
+    // A.1: view template only fires when the prompt actually asks for MVVM shape.
+    // Primitive-@State prompts would otherwise be forced into an invented-ViewModel
+    // schema. The gate applies only to `view` — viewmodels/services keep old behavior.
+    if role == "view", let prompt, !Self.promptHasMVVMSignal(prompt) { return false }
     return true
+  }
+
+  /// A.1 gate: does the prompt explicitly request an MVVM-shaped view?
+  /// Positive signals: "viewmodel", "observableobject", "@published",
+  /// "@stateobject", "@observedobject", "@environmentobject". Case-insensitive.
+  /// Absence → treat as a simple-state view and skip the template.
+  static func promptHasMVVMSignal(_ prompt: String) -> Bool {
+    let lower = prompt.lowercased()
+    let signals = [
+      "viewmodel", "observableobject", "@published", "@stateobject",
+      "@observedobject", "@environmentobject"
+    ]
+    return signals.contains { lower.contains($0) }
   }
 
   private static func parseCsv(_ s: String?) -> Set<String> {

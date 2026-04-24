@@ -1590,7 +1590,7 @@ public actor Orchestrator {
 
       // Route 1: Template (services, viewmodels, views, etc.)
       // On failure, retry template with stripped prompt before falling back to plain generation.
-      if !usedTemplate && templateRenderer.shouldUseTemplate(filePath: target) {
+      if !usedTemplate && templateRenderer.shouldUseTemplate(filePath: target, prompt: task.specification) {
         do {
           if let rendered = try await templateRenderer.resolveTemplate(
                filePath: target, prompt: task.specification, adapter: adapter,
@@ -1625,8 +1625,15 @@ public actor Orchestrator {
         // complex roles or when the prompt is too large for single-pass.
         let fileRole = target.hasSuffix(".swift") ? MicroSkill.inferFileRole(target) : ""
         // E7: JUNCO_FORCE_TWOPHASE=1 or JUNCO_TWOPHASE_ROLES override default role set.
+        // A.2: for `view`, two-phase's CodeSkeleton (imports/type/properties/methodSignatures)
+        // models classes with methods, not a SwiftUI View with a single computed `body`.
+        // Skip it when the prompt is a primitive-@State view so single-pass can emit the
+        // 9-line output directly.
+        let isSimpleView = fileRole == "view"
+          && !TemplateRenderer.promptHasMVVMSignal(task.specification)
         let usesTwoPhase = Config.twoPhaseDefault && target.hasSuffix(".swift")
           && Self.shouldUseTwoPhase(role: fileRole)
+          && !isSimpleView
 
         let system0 = Prompts.createSystem(domain: domain)
         if usesTwoPhase {
@@ -1908,7 +1915,7 @@ public actor Orchestrator {
 
       // Route 1: Template-based generation for structured file formats
       // The model fills in simple intent fields; the template guarantees valid syntax.
-      if templateRenderer.shouldUseTemplate(filePath: createTarget) {
+      if templateRenderer.shouldUseTemplate(filePath: createTarget, prompt: memory.query) {
         let intentPrompt = "\(base)\nUser request: \(TokenBudget.truncate(memory.query, toTokens: 200))"
         memory.trackCall(estimatedTokens: 600)
         if let rendered = try await templateRenderer.resolveTemplate(
