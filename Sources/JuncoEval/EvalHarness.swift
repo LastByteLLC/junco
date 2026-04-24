@@ -21,6 +21,34 @@ struct EvalCase: Sendable {
   let destructive: Bool
   let setup: String?           // Shell command to run before test (e.g., inject typo)
   let qualityCriteria: [String]
+  /// Path (relative to cwd) of the file the case is expected to produce. Used by
+  /// SubCheck executors to read the generated source. nil for cases that don't
+  /// produce a specific file.
+  let targetFile: String?
+  /// Files to pre-populate before the case runs. Key: path. Value: content. Used by
+  /// edit-/fix-type fixtures to set up their starting state. Wiped by the git
+  /// rewind at the end of each destructive run.
+  let initialFiles: [String: String]?
+  /// Declarative sub-checks run after the case produces its file. Each is an
+  /// independent Bernoulli sub-trial used as the primary scoring signal.
+  let checks: [SubCheck]
+
+  init(
+    name: String, query: String, referencedFiles: [String],
+    expectedMode: AgentMode?, destructive: Bool, setup: String?,
+    qualityCriteria: [String],
+    targetFile: String? = nil,
+    initialFiles: [String: String]? = nil,
+    checks: [SubCheck] = []
+  ) {
+    self.name = name; self.query = query
+    self.referencedFiles = referencedFiles
+    self.expectedMode = expectedMode; self.destructive = destructive
+    self.setup = setup; self.qualityCriteria = qualityCriteria
+    self.targetFile = targetFile
+    self.initialFiles = initialFiles
+    self.checks = checks
+  }
 }
 
 // MARK: - Captured Result
@@ -47,6 +75,8 @@ struct EvalResult: Sendable {
   let generatedCodeCompiles: Bool?
   /// First compiler error message captured from any generated .swift file (or nil).
   let generatedCodeError: String?
+  /// Per-sub-check result for cases that declare `checks`. Empty when none declared.
+  let subCheckResults: [SubCheckResult]
 }
 
 // MARK: - Splits
@@ -798,6 +828,13 @@ struct EvalHarness {
     var cases = Self.nonDestructiveCases
     if includeDestructive {
       cases += Self.destructiveCases
+      // Pick up any JSON fixtures in fixtures/hard/. Treated as destructive by default
+      // so they share the git-checkpoint rewind cycle with the Swift-defined cases.
+      let hardFixtures = FixtureLoader(workingDirectory: workingDirectory).loadAll()
+      if !hardFixtures.isEmpty {
+        cases += hardFixtures
+        print("Loaded \(hardFixtures.count) hard fixture(s) from fixtures/hard/")
+      }
     }
 
     if let filter = caseFilter {
@@ -886,6 +923,9 @@ struct EvalHarness {
       let referenceSimilarity: Double?
       let generatedCodeCompiles: Bool?
       let generatedCodeError: String?
+      let subCheckTotal: Int
+      let subCheckPassed: Int
+      let subChecks: [SubCheckResult]
     }
     struct Summary: Encodable {
       let splitFilter: String?
@@ -906,6 +946,12 @@ struct EvalHarness {
       let minReferenceSimilarity: Double?
       let codeGenCaseCount: Int
       let codeGenCompileRate: Double?
+      /// Total sub-check trials across all cases (denominator for subCheckPassRate).
+      let subCheckCount: Int
+      /// Sub-checks that passed (numerator). Primary fine-grained metric.
+      let subCheckPassed: Int
+      /// passed / count. The measurement axis the meta-harness should optimize.
+      let subCheckPassRate: Double?
       let cases: [CaseSummary]
     }
     let perCase = results.map {
@@ -923,9 +969,15 @@ struct EvalHarness {
         errors: $0.errors,
         referenceSimilarity: $0.referenceSimilarity,
         generatedCodeCompiles: $0.generatedCodeCompiles,
-        generatedCodeError: $0.generatedCodeError
+        generatedCodeError: $0.generatedCodeError,
+        subCheckTotal: $0.subCheckResults.count,
+        subCheckPassed: $0.subCheckResults.filter(\.passed).count,
+        subChecks: $0.subCheckResults
       )
     }
+    let subCheckTotal = results.reduce(0) { $0 + $1.subCheckResults.count }
+    let subCheckPassed = results.reduce(0) { $0 + $1.subCheckResults.filter(\.passed).count }
+    let subCheckRate: Double? = subCheckTotal == 0 ? nil : Double(subCheckPassed) / Double(subCheckTotal)
     let durations = results.map { $0.durationSeconds }
     let sorted = durations.sorted()
     let median = sorted.isEmpty ? 0 : sorted[sorted.count / 2]
@@ -957,6 +1009,9 @@ struct EvalHarness {
       minReferenceSimilarity: minRef,
       codeGenCaseCount: codeGenResults.count,
       codeGenCompileRate: codeGenRate,
+      subCheckCount: subCheckTotal,
+      subCheckPassed: subCheckPassed,
+      subCheckPassRate: subCheckRate,
       cases: perCase
     )
     let encoder = JSONEncoder()
@@ -1005,6 +1060,12 @@ struct EvalHarness {
       let similarity = referenceScorer.score(caseName: evalCase.name, answer: result.reflection.insight)
       let modified = Array(result.memory.touchedFiles)
       let (codeCompiles, codeError) = validateGeneratedSwift(paths: modified)
+      let checks = evalCase.checks.isEmpty ? [] : FixtureChecker().run(
+        checks: evalCase.checks,
+        filePath: evalCase.targetFile,
+        answer: result.reflection.insight,
+        workingDirectory: workingDirectory
+      )
       return EvalResult(
         caseName: evalCase.name,
         query: evalCase.query,
@@ -1022,7 +1083,8 @@ struct EvalHarness {
         modeCorrect: evalCase.expectedMode.map { $0 == capturedMode },
         referenceSimilarity: similarity,
         generatedCodeCompiles: codeCompiles,
-        generatedCodeError: codeError
+        generatedCodeError: codeError,
+        subCheckResults: checks
       )
     } catch {
       let capturedMode = modeLock.withLock { $0 }
@@ -1037,7 +1099,8 @@ struct EvalHarness {
         modeCorrect: evalCase.expectedMode.map { $0 == capturedMode },
         referenceSimilarity: nil,
         generatedCodeCompiles: nil,
-        generatedCodeError: nil
+        generatedCodeError: nil,
+        subCheckResults: []
       )
     }
   }
@@ -1077,6 +1140,16 @@ struct EvalHarness {
     // Run setup command if any (e.g., inject typo)
     if let setup = evalCase.setup {
       _ = try? await shell.execute(setup)
+    }
+
+    // Pre-populate any initial files the case depends on (edit/fix fixtures).
+    if let initialFiles = evalCase.initialFiles {
+      for (relPath, content) in initialFiles {
+        let absolute = (workingDirectory as NSString).appendingPathComponent(relPath)
+        let parent = (absolute as NSString).deletingLastPathComponent
+        try? FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: true)
+        try? content.write(toFile: absolute, atomically: true, encoding: .utf8)
+      }
     }
 
     // Run the test
